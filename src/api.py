@@ -389,6 +389,7 @@ def perform_clustering(df, seg_path, data_path, mode, method, n_clusters, stages
                 km = KMeans(n_clusters=k, random_state=rs)
                 km = km.fit(df[["zD_{}".format(x) for x in stages]])
                 sum_of_squared_distances.append(km.inertia_)
+            plt.figure(figsize=[10, 7])
             plt.plot(np.arange(1, n_clusters + 1), sum_of_squared_distances, 'bx-')
             plt.xlabel('k')
             plt.ylabel('Sum_of_squared_distances')
@@ -534,7 +535,6 @@ def viz_clusters_dynamics(df, data_path, method, stages):
 
     axes[-1].set_xticklabels(["zD_{}".format(x) for x in stages], rotation=90)
 
-    plt.title('Clusters detailzation. Method: {}'.format(method))
     plt.draw()
     plt.savefig(join(data_path, 'clusters_detalization_{}.png'.format(method)))
 
@@ -560,7 +560,7 @@ def viz_pca(df, data_path, stages, method):
     df_pca['pca-three'] = pca_result[:, 2]
     logging.info("VIZ_PCA| Explained variation per principal component: {}".format(pca.explained_variance_ratio_))
 
-    plt.figure(figsize=(16, 10))
+    ax = plt.figure(figsize=(16, 10))
     sns.scatterplot(
         x="pca-one", y="pca-two",
         hue=clusters_name,
