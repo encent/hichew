@@ -1,0 +1,3 @@
+FROM hichew-pre
+WORKDIR /
+EXPOSE 9990

@@ -1,0 +1,84 @@
+FROM ubuntu:16.04
+RUN APT_INSTALL="apt-get install -y --no-install-recommends" && \
+    PIP_INSTALL="python -m pip --no-cache-dir install --upgrade" && \
+    GIT_CLONE="git clone --depth 10" && \
+
+    rm -rf /var/lib/apt/lists/* \
+           /etc/apt/sources.list.d/cuda.list \
+           /etc/apt/sources.list.d/nvidia-ml.list && \
+
+    apt-get update && \
+
+# ==================================================================
+# tools -- past here toolnames you want to install using apt-get
+# ------------------------------------------------------------------
+
+    DEBIAN_FRONTEND=noninteractive $APT_INSTALL \
+        protobuf-compiler \
+        build-essential \
+        ca-certificates \
+        zip \
+        unzip \
+        cmake \
+        wget \
+        libhdf5-dev \
+        git \
+        screen \
+        curl \
+        vim \
+        && \
+
+# ==================================================================
+# python -- past in PIP_install section tools you want to install using pip
+# ------------------------------------------------------------------
+
+    DEBIAN_FRONTEND=noninteractive $APT_INSTALL \
+        software-properties-common \
+        && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive $APT_INSTALL \
+        python3.6 \
+        python3.6-dev \
+        libsm6 \
+        libxext6 \
+        libxrender1 \
+        libfontconfig1 \
+        && \
+    wget -O ~/get-pip.py \
+        https://bootstrap.pypa.io/get-pip.py && \
+    python3.6 ~/get-pip.py && \
+    ln -s /usr/bin/python3.6 /usr/local/bin/python3 && \
+    ln -s /usr/bin/python3.6 /usr/local/bin/python && \
+    $PIP_INSTALL \
+        setuptools \
+        requests \
+        sklearn \
+        pandas \
+        numpy \
+        seaborn \
+        lxml \
+        h5py \
+        tqdm \
+        jupyter \
+        scipy \
+        matplotlib \
+        cooler \
+        && \
+
+# ==================================================================
+# Lavaburst
+# ==================================================================
+    git clone https://github.com/nvictus/lavaburst && \
+    cd lavaburst && \
+    make build -f Makefile && \
+    make install -f Makefile && \
+
+# ==================================================================
+# config & cleanup
+# ------------------------------------------------------------------
+
+    ldconfig && \
+    apt-get clean && \
+    apt-get autoremove && \
+    rm -rf /var/lib/apt/lists/* /tmp/* ~/*
