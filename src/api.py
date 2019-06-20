@@ -82,8 +82,9 @@ def load_cool_files(coolfiles_path, chromnames, stage_names=None):
 	"""
 	Function to load coolfiles.
 	:param coolfiles_path: path to the directory with coolfiles.
-	:param stage_name: name of developmental stage to investigate.
 	:param chromnames: list of chromosomes names.
+	:param stage_names: name(s) of developmental stage to investigate. In case of clustering we recommend to pass None
+	to load all stages you have.
 	:return: python dictionary with keys of stages and chromnames, and values of contact matrices.
 	"""
 	if not stage_names is None:
