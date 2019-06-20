@@ -1,6 +1,6 @@
 # HiChew
 
-### What it is?
+### What is it?
 
 HiChew is the command-line tool to find optimal TADs segmentation and perform clustering based on D-scores on it. 
 First and last assumption to use our tool is that you have embryo developmental stages stores in coolfiles, 
