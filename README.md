@@ -12,13 +12,13 @@ HiChew makes your head free of choosing `gamma` parameter in segmentation method
 optimal `gamma` value itself! You just pass a grid of `gamma` parameter search (start, end, step).
 
 HiChew also makes clustering of optimal segmentation. It is useful because recent researches shed a light upon the 
-biological meaning of TADs clustering based on D-scores. Thus, an easy-to-use tool should make the process of search 
-the best clustering easier.
+biological meaning of TADs clustering based on D-scores. Thus, an easy-to-use tool should make the process of searching 
+the best clustering faster.
 
 ### How to use it?
 
 Just launch docker container and then one of the provided scripts `run_segmentation.py` and `run_clustering.py` 
-inside the container (scripts have parameters -- please go inside the code, threre are some insides and 
+inside the container (scripts have parameters -- please go inside the code, threre are some insights and 
 documentation).
 
 For command-line usage:
@@ -41,10 +41,10 @@ cd hichew && make build -f Makefile
 docker run -it --rm  -p 9999:9999 -v $(pwd):/hichew --name hichew-jupyter hichew-jupyter
 ```
 
-File `api.py` contains useful functions that you can use in jupyter or python environment like API (both for segmentation and clustering).
-File `utils.py` contatins third-level-functions that `api.py` use.
+File `api.py` contains useful functions that you can use in jupyter or python environment (both for segmentation and clustering).
+File `utils.py` contatins third-level-functions that `api.py` uses.
 
 ### That is it?
 
-No. There is the first version of this tool (even probably alpha-version). Yet not founded bug-fixes and some additional 
+No. That is the first version of this tool (even probably alpha-version). Yet not founded bug-fixes and some additional 
 functions will be provided as soon as possible. Watch for updates!
