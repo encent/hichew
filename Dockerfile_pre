@@ -53,16 +53,16 @@ RUN APT_INSTALL="apt-get install -y --no-install-recommends" && \
     $PIP_INSTALL \
         setuptools \
         requests \
-        sklearn \
+        scikit-learn==0.20.3 \
         pandas \
         numpy \
-        seaborn \
+        seaborn==0.9.0 \
         lxml \
         h5py \
         tqdm \
         jupyter \
         scipy \
-        matplotlib \
+        matplotlib==3.0.3 \
         cooler \
         && \
 

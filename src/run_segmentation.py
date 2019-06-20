@@ -109,7 +109,7 @@ def run_pipeline():
     in_time = time.time()
 
     COOLFILES_PATH = download_files(INPUT_TYPE, INPUT_PATH, E_MTABS_DIR, COOLFILES_DIR)
-    DATASETS = load_cool_files(COOLFILES_PATH, [STAGE_NAME], CHROMNAMES)
+    DATASETS = load_cool_files(COOLFILES_PATH, CHROMNAMES, [STAGE_NAME])
     opgs, df, df_conc = search_opt_gamma(DATASETS, EXPERIMENT_PATH, method=METHOD,
                                          grid=np.arange(GRID[0], GRID[1], GRID[2]), mis=MAX_INTERTAD, mts=MAX_TAD_SIZE,
                                          start_step=GRID[2], chrms=CHROMNAMES, eps=EPSILON, expected=EXPECTED_MEAN_TAD,
