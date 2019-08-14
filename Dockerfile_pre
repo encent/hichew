@@ -63,14 +63,31 @@ RUN APT_INSTALL="apt-get install -y --no-install-recommends" && \
         jupyter \
         scipy \
         matplotlib==3.0.3 \
-        cooler \
+        Cython \
+        pysam==0.15.1 \
         && \
+
+# ==================================================================
+# Cooler
+# ==================================================================
+    git clone https://github.com/mirnylab/cooler && \
+    cd cooler && \
+    make build -f Makefile && \
+    make install -f Makefile && \
 
 # ==================================================================
 # Lavaburst
 # ==================================================================
     git clone https://github.com/nvictus/lavaburst && \
     cd lavaburst && \
+    make build -f Makefile && \
+    make install -f Makefile && \
+
+# ==================================================================
+# Cooltools
+# ==================================================================
+    git clone https://github.com/mirnylab/cooltools && \
+    cd cooltools && \
     make build -f Makefile && \
     make install -f Makefile && \
 

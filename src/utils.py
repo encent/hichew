@@ -3,19 +3,101 @@ import operator
 import warnings
 
 import lavaburst
+import cooltools.insulation
 import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
 
 
-def produce_segmentation(mtx, filters, gamma, ch, good_bins='default', method='armatus', max_intertad_size=3,
-                         max_tad_size=10000, final=False):
+def calc_mean_tad_size(boundaries, filters, ch, mis, mts, wind, resolution):
+    """
+    Function to calculate some statistics: mean tad size, total coverage, mean insulation score.
+    This function uses only in insulation method!
+    :param boundaries: boundaries dataframe.
+    :param filters: regions of Hi-C map that should be ignored (white stripes).
+    :param ch: chromosome name.
+    :param mis: maximum intertad size for your method.
+    :param mts: maximum TAD size.
+    :param wind: single window value.
+    :param resolution: Hi-C resolution of your coolfiles.
+    :return: mean tad size, total chromosome coverage and mean insulation for certain window value
+    """
+    select_tads = pd.DataFrame(index=list(range(boundaries.shape[0] - 1)),
+                               columns=['left_start', 'left_end', 'right_start', 'right_end', 'left_insulation',
+                                        'right_insulation', 'length', 'is_normal'])
+    select_tads['left_start'] = list(boundaries.iloc[:-1]['start'])
+    select_tads['left_end'] = list(boundaries.iloc[:-1]['end'])
+    select_tads['right_start'] = list(boundaries.iloc[1:]['start'])
+    select_tads['right_end'] = list(boundaries.iloc[1:]['end'])
+    select_tads['left_insulation'] = list(boundaries.iloc[:-1]['log2_insulation_score_{}'.format(int(wind))])
+    select_tads['right_insulation'] = list(boundaries.iloc[1:]['log2_insulation_score_{}'.format(int(wind))])
+    select_tads['length'] = list((select_tads['right_start'] - select_tads['left_end']) / resolution)
+    select_tads = select_tads[(select_tads['length'] > mis) & (select_tads['length'] < mts)]
+    select_tads['is_normal'] = list(map(
+        lambda x, y: True if filters[ch][(filters[ch][:, 0] >= x) & (filters[ch][:, 1] <= y)].shape[0] == 0 else False,
+        select_tads['left_end'], select_tads['right_start']))
+    select_tads = select_tads[select_tads['is_normal'] == True]
+
+    mean_tad = np.mean(select_tads['length'])
+    try:
+        mean_ins = np.mean(list(select_tads['left_insulation']) + [list(select_tads['right_insulation'])[-1]])
+    except:
+        mean_ins = np.nan
+    sum_cov = np.sum(select_tads['length'])
+
+    if np.isnan(mean_tad): mean_tad = 0
+    if np.isnan(sum_cov): sum_cov = 0
+    if np.isnan(mean_ins): mean_ins = 0
+
+    return mean_tad, sum_cov, mean_ins
+
+
+def produce_boundaries_segmentation(clr, mtx, filters, window, ch, method, resolution, final=False):
+    """
+    Function produces single segmentation (TADs boundaries calling) of mtx with one window with the algorithm provided.
+    :param clr: cooler file which corresponds to single stage of development (by which we search segmentation).
+    :param mtx: input numpy matrix of Hi-C contacts.
+    :param filters: regions of Hi-C map that should be ignored (white stripes).
+    :param window: single window value.
+    :param ch: chromosome name.
+    :param resolution: Hi-C resolution of your coolfiles.
+    :param final: bool parameter - does iteration of optimal gamma search is final?
+    :return: boundaries_coords -- 2D numpy array where boundaries_coords[:, 0] are boundaries starts and
+    boundaries_coords[:, 1] are boundaries end, each row corresponding to one boundary;
+    boundaries -- corresponding dataframe.
+    """
+    ins_scores = cooltools.insulation.calculate_insulation_score(clr, int(window), ignore_diags=2, chromosomes=[ch])
+    boundaries = cooltools.insulation.find_boundaries(ins_scores)
+    boundaries = boundaries[
+        (boundaries['boundary_strength_{}'.format(int(window))].notnull())]
+    boundaries.index = list(range(boundaries.shape[0]))
+    boundaries_coords = np.asarray(boundaries[['start', 'end']])
+
+    metric_values = np.array([calc_noisy_metric(x, filters, ch, method) for x in boundaries_coords])
+    hist_arr = np.array(sorted(metric_values))
+    hist_arr = hist_arr[hist_arr > 0]
+
+    try:
+        noise_freq = np.sum(filters[ch][:, 1] - filters[ch][:, 0]) / (mtx.shape[0] * resolution)
+        if final: logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| Noise frequency for {} opt window: {}'.format(int(window),
+                                                                                                         noise_freq))
+        thresh = (hist_arr[:int(len(hist_arr) * noise_freq)][-1] + hist_arr[int(len(hist_arr) * noise_freq)]) / 2
+        if final: logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| For {} opt window delete {} boundaries out of {}.'.format(
+            int(window), boundaries_coords.shape[0] - boundaries_coords[metric_values > thresh].shape[0],
+            boundaries_coords.shape[0]))
+        return boundaries_coords[metric_values > thresh], boundaries[metric_values > thresh]
+    except Exception as e:
+        return boundaries_coords, boundaries
+
+
+def produce_tads_segmentation(mtx, filters, gamma, ch, good_bins='default', method='armatus', max_intertad_size=3,
+                         max_tad_size=1000, final=False):
     """
     Function produces single segmentation (TADs calling) of mtx with one gamma with the algorithm provided.
     :param mtx: input numpy matrix of Hi-C contacts.
     :param filters: regions of Hi-C map that should be ignored (white stripes).
-    :param gamma: single gamma value/
+    :param gamma: single gamma value.
     :param ch: chromosome name.
     :param good_bins: bool mask of good bins.
     :param method: armatus or modularity to produce segmentation.
@@ -26,11 +108,12 @@ def produce_segmentation(mtx, filters, gamma, ch, good_bins='default', method='a
     each row corresponding to one segment.
     """
     if np.any(np.isnan(mtx)):
-        logging.warning("PRODUCE_SEGMENTATION| NaNs in dataset, please remove them first.")
+        logging.warning("PRODUCE_TADS_SEGMENTATION| NaNs in dataset, please remove them first.")
 
     if np.diagonal(mtx).sum() > 0:
         logging.warning(
-            "PRODUCE_SEGMENTATION| Note that diagonal is not removed. you might want to delete it to avoid noisy and not stable results.")
+            "PRODUCE_TADS_SEGMENTATION| Note that diagonal is not removed. you might want to delete it to avoid "
+            "noisy and not stable results.")
 
     if method == 'modularity':
         score = lavaburst.scoring.modularity_score
@@ -50,16 +133,17 @@ def produce_segmentation(mtx, filters, gamma, ch, good_bins='default', method='a
     mask = (v > max_intertad_size) & (np.isfinite(v)) & (v < max_tad_size)
     segments = segments[mask]
 
-    metric_values = np.array([calc_noisy_metric(x, filters, ch) for x in segments])
+    metric_values = np.array([calc_noisy_metric(x, filters, ch, method) for x in segments])
     hist_arr = np.array(sorted(metric_values))
     hist_arr = hist_arr[hist_arr > 0]
     try:
         noise_freq = np.sum(filters[ch][:, 1] - filters[ch][:, 0] + 1) / mtx.shape[0]
         if final:
-            logging.info("PRODUCE_SEGMENTATION| Noise frequency in Hi-C contact matrix is {}".format(noise_freq))
+            logging.info("PRODUCE_TADS_SEGMENTATION| Noise frequency in Hi-C contact matrix is {}".format(noise_freq))
         thresh = (hist_arr[:int(len(hist_arr) * noise_freq)][-1] + hist_arr[int(len(hist_arr) * noise_freq)]) / 2
         if final:
-            logging.info("PRODUCE_SEGMENTATION| Finally delete {} noisy TADs out of {} from our segmentation".format(
+            logging.info("PRODUCE_TADS_SEGMENTATION| Finally delete {} noisy TADs out of {} from our "
+                         "segmentation".format(
                 segments.shape[0] - segments[metric_values > thresh].shape[0], segments.shape[0]))
         return segments[metric_values > thresh]
     except Exception as e:
@@ -90,7 +174,7 @@ def whether_to_expand(mtx, filters, grid, ch, good_bins, method, mis, mts, start
 
     if not any(x < 0 for x in upper_check):
         for g in upper_check:
-            len_upper_segments.append(len(list(produce_segmentation(mtx, filters, g, ch, good_bins=good_bins,
+            len_upper_segments.append(len(list(produce_tads_segmentation(mtx, filters, g, ch, good_bins=good_bins,
                                                                     method=method, max_intertad_size=mis,
                                                                     max_tad_size=mts))))
     else:
@@ -99,7 +183,7 @@ def whether_to_expand(mtx, filters, grid, ch, good_bins, method, mis, mts, start
 
     if not any(x < 0 for x in lower_check):
         for g in lower_check:
-            len_upper_segments.append(len(list(produce_segmentation(mtx, filters, g, ch, good_bins=good_bins,
+            len_upper_segments.append(len(list(produce_tads_segmentation(mtx, filters, g, ch, good_bins=good_bins,
                                                                     method=method, max_intertad_size=mis,
                                                                     max_tad_size=mts))))
     else:
@@ -111,7 +195,7 @@ def whether_to_expand(mtx, filters, grid, ch, good_bins, method, mis, mts, start
             pass
         else:
             for g in lower_check[first_nonnegative_gamma:]:
-                len_lower_segments.append(len(list(produce_segmentation(mtx, filters, g, ch, good_bins=good_bins,
+                len_lower_segments.append(len(list(produce_tads_segmentation(mtx, filters, g, ch, good_bins=good_bins,
                                                                         method=method, max_intertad_size=mis,
                                                                         max_tad_size=mts))))
 
@@ -140,7 +224,7 @@ def adjust_boundaries(mtx, filters, grid, ch, good_bins, method, mis, mts, start
     :param type: type of boundary to adjust - lower or upper.
     :return: adjusted grid.
     """
-    logging.info("ADJUST_BOUNDARIES| Start searching gamma upper bound for chromosome {}...".format(ch))
+    logging.info("ADJUST_BOUNDARIES| Start searching gamma {} bound for chromosome {}...".format(type, ch))
     if start_step != 1:
         grid = np.asarray([round(x, len(str(start_step).split('.')[1])) for x in grid])
     len_segments_prev = [0]
@@ -152,7 +236,7 @@ def adjust_boundaries(mtx, filters, grid, ch, good_bins, method, mis, mts, start
     is_begin = True
 
     while delta > 1:
-        len_segments = len(list(produce_segmentation(mtx, filters, bound_1, ch, good_bins=good_bins,
+        len_segments = len(list(produce_tads_segmentation(mtx, filters, bound_1, ch, good_bins=good_bins,
                                                      method=method, max_intertad_size=mis, max_tad_size=mts)))
         if is_begin:
             len_segments_prev = len_segments
@@ -178,7 +262,7 @@ def adjust_boundaries(mtx, filters, grid, ch, good_bins, method, mis, mts, start
         if type == 'upper' else np.arange(grid[np.where(grid == bound_gamma_fixed)[0][0]], grid[-1] + start_step, start_step)
     if start_step != 1 and type != 'upper':
         adj_grid = np.array([round(x, len(str(start_step).split('.')[1])) for x in adj_grid])
-    logging.info("ADJUST_BOUNDARIES| Found gamma upper bound: {}".format(bound_gamma_fixed))
+    logging.info("ADJUST_BOUNDARIES| Found gamma {} bound: {}".format(type, bound_gamma_fixed))
     if adj_grid[-1] - adj_grid[0] - start_step <= eps and type != 'upper':
         logging.error("ADJUST_BOUNDARIES| You probably out of gamma region of interest! Please, change the grid!")
         return
@@ -207,7 +291,7 @@ def find_global_optima(mtx, filters, adj_grid, ch, good_bins, method, mis, mts, 
 
     new_grid = np.arange(adj_grid[0], adj_grid[-1] + start_step, start_step)
 
-    segments_0 = produce_segmentation(mtx, filters, new_grid[0], ch, good_bins=good_bins,
+    segments_0 = produce_tads_segmentation(mtx, filters, new_grid[0], ch, good_bins=good_bins,
                                       method=method, max_intertad_size=mis, max_tad_size=mts)
     mean_tad_size_prev = np.mean(segments_0[:, 1] - segments_0[:, 0])
     gamma_prev = new_grid[0]
@@ -227,7 +311,7 @@ def find_global_optima(mtx, filters, adj_grid, ch, good_bins, method, mis, mts, 
     covs.append(cov_prev)
 
     for gamma in new_grid[1:]:
-        segments = produce_segmentation(mtx, filters, gamma, ch, good_bins=good_bins,
+        segments = produce_tads_segmentation(mtx, filters, gamma, ch, good_bins=good_bins,
                                         method=method, max_intertad_size=mis, max_tad_size=mts)
         mean_tad_size = np.mean(segments[:, 1] - segments[:, 0])
         mean_tad_sizes.append(mean_tad_size)
@@ -283,7 +367,7 @@ def adjust_global_optima(mtx, filters, opt_gamma, opt_gammas, ch, good_bins, met
     """
     logging.info("ADJUST_GLOBAL_OPTIMA| Running TAD search to concretize optimal gamma for chromosome {0} "
                  "reducing the step of search...".format(ch))
-    segments = produce_segmentation(mtx, filters, opt_gamma, ch, good_bins=good_bins,
+    segments = produce_tads_segmentation(mtx, filters, opt_gamma, ch, good_bins=good_bins,
                                     method=method, max_intertad_size=mis, max_tad_size=mts)
     mean_tad_size = np.mean(segments[:, 1] - segments[:, 0])
     mts_prev = abs(expected / resolution - mean_tad_size)
@@ -293,7 +377,7 @@ def adjust_global_optima(mtx, filters, opt_gamma, opt_gammas, ch, good_bins, met
     new_grid = np.arange(new_opt_gamma - step, new_opt_gamma + step, step / 10)
     mean_tad_size = []
     for gamma in new_grid:
-        segments = produce_segmentation(mtx, filters, gamma, ch, good_bins=good_bins,
+        segments = produce_tads_segmentation(mtx, filters, gamma, ch, good_bins=good_bins,
                                         method=method, max_intertad_size=mis, max_tad_size=mts)
         mean_tad_size.append(np.mean(segments[:, 1] - segments[:, 0]))
 
@@ -306,7 +390,7 @@ def adjust_global_optima(mtx, filters, opt_gamma, opt_gammas, ch, good_bins, met
         new_grid = np.arange(new_opt_gamma - step, new_opt_gamma + step, step / 10)
         mean_tad_size = []
         for gamma in new_grid:
-            segments = produce_segmentation(mtx, filters, gamma, ch, good_bins=good_bins,
+            segments = produce_tads_segmentation(mtx, filters, gamma, ch, good_bins=good_bins,
                                             method=method, max_intertad_size=mis, max_tad_size=mts)
             mean_tad_size.append(np.mean(segments[:, 1] - segments[:, 0]))
 
@@ -314,7 +398,7 @@ def adjust_global_optima(mtx, filters, opt_gamma, opt_gammas, ch, good_bins, met
         mts_cur = np.min([abs(x - expected / resolution) for x in mean_tad_size])
         step /= 10
 
-    segments = produce_segmentation(mtx, filters, new_opt_gamma, ch, good_bins=good_bins,
+    segments = produce_tads_segmentation(mtx, filters, new_opt_gamma, ch, good_bins=good_bins,
                                     method=method, max_intertad_size=mis, max_tad_size=mts, final=True)
     df_tmp = pd.DataFrame(columns=['bgn', 'end', 'gamma', 'method'], index=np.arange(len(segments)))
     df_tmp.loc[:, ['bgn', 'end']] = segments
@@ -330,11 +414,13 @@ def adjust_global_optima(mtx, filters, opt_gamma, opt_gammas, ch, good_bins, met
     return df_concretized, opt_gammas
 
 
-def get_noisy_stripes(datasets, ch, exp='3-4h', percentile=99.9):
+def get_noisy_stripes(datasets, ch, method, resolution, exp='3-4h', percentile=99.9):
     """
     Function to get noisy regions from Hi-C contact matrix of given stage and chromosome.
     :param datasets: python dictionary with loaded chromosomes and stages.
     :param ch: chromosome name.
+    :param method: segmentation method (only armatus, modularity and insulation available).
+    :param resolution: Hi-C resolution of your coolfiles.
     :param exp: stage of development name.
     :param percentile: percentile for cooler preparations and Hi-C vizualization.
     :return: Hi-C noisy stripes (bgn, end) which width is great or equal to w param value
@@ -365,11 +451,22 @@ def get_noisy_stripes(datasets, ch, exp='3-4h', percentile=99.9):
     v_tmp = np.array(v_tmp)
 
     filt = v_tmp[v_tmp[:, 1] - v_tmp[:, 0] >= 0]
-    filters[ch] = filt.copy()
+
+    if method == 'insulation':
+        filt_new = []
+        for elem in filt:
+            filt_new.append([elem[0] * resolution, elem[1] * resolution + resolution])
+        filt_new = np.asarray(filt_new)
+        filters[ch] = filt_new.copy()
+    else:
+        filters[ch] = filt.copy()
 
     good_bins = np.ones(mtx.shape[0], dtype=bool)
     for stripe in filters[ch]:
-        good_bins[stripe[0]: stripe[1] + 1] = False
+        if method == 'insulation':
+            good_bins[int(stripe[0] / resolution): int(stripe[1] / resolution)] = False
+        else:
+            good_bins[stripe[0]: stripe[1] + 1] = False
 
     return filters, mtx, good_bins
 
@@ -394,12 +491,13 @@ def whether_tad_noisy(x, filters, ch):
     return False
 
 
-def calc_noisy_metric(x, filters, ch):
+def calc_noisy_metric(x, filters, ch, method):
     """
     Function to calculate noisy metric (characteristic) for each TAD.
     :param x: TAD
     :param filters: dictionary with noisy regions
     :param ch: chromosome name
+    :param method: segmentation method (only armatus, modularity and insulation available).
     :return: heuristic metric value for noisy level determination of TAD.
     First we check whether tad "100% noisy" with whether_tad_noisy function.
     If its function returns False for current TAD, then we calculate our metric.
@@ -419,11 +517,17 @@ def calc_noisy_metric(x, filters, ch):
         except Exception as e:
             right_stripe = np.array([])
         if len(left_stripe) != 0:
-            left_side_metric = (np.log(x[0] - left_stripe[1]) ** 2) * np.log(x[1] - x[0])
+            if method == 'insulation':
+                left_side_metric = (np.log(x[0] - left_stripe[1]) ** 2)
+            else:
+                left_side_metric = (np.log(x[0] - left_stripe[1]) ** 2) * np.log(x[1] - x[0])
         else:
             left_side_metric = 1e10
         if len(right_stripe) != 0:
-            right_side_metric = (np.log(right_stripe[0] - x[1]) ** 2) * np.log(x[1] - x[0])
+            if method == 'insulation':
+                right_side_metric = (np.log(right_stripe[0] - x[1]) ** 2)
+            else:
+                right_side_metric = (np.log(right_stripe[0] - x[1]) ** 2) * np.log(x[1] - x[0])
         else:
             right_side_metric = 1e10
         return min(left_side_metric, right_side_metric)
