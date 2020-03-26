@@ -8,7 +8,8 @@ from os import makedirs
 from os.path import abspath, normpath, join, isdir, splitext
 
 import numpy as np
-from api import download_files, load_cool_files, search_opt_gamma, viz_opt_curves, viz_tads, search_opt_window
+from api import download_files, load_cool_files, search_opt_gamma, viz_opt_curves, viz_tads, search_opt_window, \
+    run_consensus
 
 warnings.filterwarnings("ignore")
 
@@ -38,8 +39,15 @@ def run_pipeline():
                         help='Delta for mean tad size during gamma parameter concretization in case of method=armatus '
                              'or method=modularity. Delta for stopping criterion in case of method=insulation (0.05 recommended).')
     parser.add_argument('-s', '--stage', type=str, default='3-4h_repl_merged_5kb',
-                        help='Name of coolfile (with or without extension) corresponding to the stage of development '
+                        help='Name of coolfile(s) (with or without extension) corresponding to the stage of development '
                              'by which TADs optimal segmentation search will be run.')
+    parser.add_argument('-c', '--consensus', type=bool, default=False,
+                        help='If True -- segmentation runs for all stages indicated in stage argument; '
+                             'if False -- segmentation runs for one stage indicated in stage argument')
+    parser.add_argument('-mb', '--merge_boundaries', type=bool, default=False,
+                        help="Use only if consensus==True! "
+                             "If True -- boundaries within the same loci among different stages are merged into one "
+                             "single 'mean' boundary; if False -- neighbour boundaries aren't merged into one")
     parser.add_argument('-res', '--resolution', type=int, default=5000,
                         help='Setting resolution of Hi-C map.')
     parser.add_argument('-chr', '--chromnames', type=str, default='X,2L,2R,3L,3R',
@@ -65,6 +73,14 @@ def run_pipeline():
                         help='Percentile for cooler and Hi-C visualization.')
     parser.add_argument('-vbc', '--viz_bin_count', type=int, default=1000,
                         help='Number of bins to vizualize on a single Hi-C map.')
+    parser.add_argument('-vts', '--viz_tad_stage', type=str, default='3-4h',
+                        help='Stage for TAD visualizing')
+    parser.add_argument('-ns', '--noise_shift', type=str, default=3,
+                        help='Interval over the noisy white stripes which will be ingored during boundaries calling')
+    parser.add_argument('-loc_size', '--loc_size', type=int, default=2,
+                        help='Total length of subset of boundaries to merge. In case of merge_boundaries==True')
+    parser.add_argument('-nstm', '--num_stages_to_merge', type=int, default=3,
+                        help='Number of stages to merge into consensus one. In case of merge_boundaries==True')
 
     args = parser.parse_args()
 
@@ -76,7 +92,9 @@ def run_pipeline():
     if not isdir(EXPERIMENT_PATH): makedirs(EXPERIMENT_PATH)
 
     EPSILON = args.epsilon
-    STAGE_NAME = splitext(args.stage)[0]
+    STAGE_NAME = args.stage
+    CONSENSUS = args.consensus
+    MERGE_BOUNDARIES = args.merge_boundaries
     RESOLUTION = args.resolution
     CHROMNAMES = args.chromnames; CHROMNAMES = [x.strip() for x in CHROMNAMES.split(',')]
     METHOD = args.method
@@ -86,6 +104,10 @@ def run_pipeline():
     MAX_TAD_SIZE = args.max_tad_size
     PERCENTILE = args.percentile
     VIZ_BIN_COUNT = args.viz_bin_count
+    VIZ_TAD_STAGE = args.viz_tad_stage
+    NOISE_SHIFT = args.noise_shift
+    LOC_SIZE = args.loc_size
+    NUM_STAGES_TO_MERGE = args.num_stages_to_merge
 
     if METHOD == 'insulation' and len(np.arange(GRID[0], GRID[1], GRID[2])) > 2 and \
             len(np.arange(GRID[0], GRID[1], GRID[2])) < 10:
@@ -107,35 +129,55 @@ def run_pipeline():
     logging.info("RUN_PIPELINE| running pipeline...")
     logging.info("RUN_PIPELINE| input command line params:\n"
                  "input_type: {}\ninput_path: {}\nexperiment_name: {}\n"
-                 "experiment_path: {}\nepsilon: {}\nstage_name: {}\nresolution: {}\n"
-                 "chromnames: {}\nmethod: {}\ngrid: {}\n"
-                 "expected_mean_tad: {}\nmax_intertad: {}\nmax_tad_size: {}\n"
-                 "percentile: {}\nviz_bin_count: {}\nwindow_spotlight: {}".format(INPUT_TYPE, INPUT_PATH,
-                                           EXPERIMENT_NAME, EXPERIMENT_PATH, EPSILON, STAGE_NAME, RESOLUTION,
-                                           str(CHROMNAMES), METHOD, str(GRID), EXPECTED_MEAN_TAD, MAX_INTERTAD,
-                                           MAX_TAD_SIZE, PERCENTILE, VIZ_BIN_COUNT, WINDOW_SPOTLIGHT))
+                 "experiment_path: {}\nepsilon: {}\nstage_name: {}\nconsensus: {}\nmerge_boundaries: {}\n"
+                 "resolution: {}\nchromnames: {}\nmethod: {}\ngrid: {}\n"
+                 "expected_mean_tad: {}\nmax_intertad: {}\nmax_tad_size: {}\npercentile: {}\nviz_bin_count: {}\n"
+                 "window_spotlight: {}\nviz_tad_stage: {}\nnoise_shift: {}\nloc_size: {}\n"
+                 "num_stages_to_merge: {}".format(INPUT_TYPE, INPUT_PATH,
+                                            EXPERIMENT_NAME, EXPERIMENT_PATH, EPSILON, STAGE_NAME, CONSENSUS,
+                                            MERGE_BOUNDARIES, RESOLUTION, str(CHROMNAMES), METHOD, str(GRID),
+                                            EXPECTED_MEAN_TAD, MAX_INTERTAD, MAX_TAD_SIZE, PERCENTILE, VIZ_BIN_COUNT,
+                                            WINDOW_SPOTLIGHT, VIZ_TAD_STAGE, NOISE_SHIFT, LOC_SIZE, NUM_STAGES_TO_MERGE))
 
     in_time = time.time()
 
     COOLFILES_PATH = download_files(INPUT_TYPE, INPUT_PATH)
-    DATASETS, COOL_SETS = load_cool_files(COOLFILES_PATH, CHROMNAMES, [STAGE_NAME])
+    if not CONSENSUS:
+        DATASETS, COOL_SETS = load_cool_files(COOLFILES_PATH, CHROMNAMES, RESOLUTION, [STAGE_NAME])
+    else:
+        DATASETS, COOL_SETS = load_cool_files(COOLFILES_PATH, CHROMNAMES, RESOLUTION, [x.strip() for x in STAGE_NAME.split(',')])
     if METHOD == 'insulation':
-        df, df_conc, stats, opws = search_opt_window(DATASETS, COOL_SETS, EXPERIMENT_PATH,
-                                                     grid=np.arange(GRID[0], GRID[1], GRID[2]) * RESOLUTION, mis=MAX_INTERTAD,
-                                                     mts=MAX_TAD_SIZE, chrms=CHROMNAMES, method=METHOD,
-                                                     resolution=RESOLUTION, expected=EXPECTED_MEAN_TAD, exp=STAGE_NAME,
-                                                     percentile=PERCENTILE, eps=EPSILON, window_eps=WINDOW_SPOTLIGHT)
-        viz_opt_curves(stats, METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000),
-                       EXPERIMENT_PATH)
-        viz_tads(EXPERIMENT_PATH, df_conc, DATASETS, CHROMNAMES, STAGE_NAME, RESOLUTION, method=None, is_insulation=True, clusters=False,
-                 colors=None, percentile=99.9, vbc=VIZ_BIN_COUNT)
+        if not CONSENSUS:
+            df, df_conc, stats, opws = search_opt_window(DATASETS, COOL_SETS, EXPERIMENT_PATH,
+                                                         grid=np.arange(GRID[0], GRID[1], GRID[2]) * RESOLUTION, mis=MAX_INTERTAD,
+                                                         mts=MAX_TAD_SIZE, chrms=CHROMNAMES, method=METHOD,
+                                                         resolution=RESOLUTION, expected=EXPECTED_MEAN_TAD, exp=STAGE_NAME,
+                                                         percentile=PERCENTILE, eps=EPSILON, window_eps=WINDOW_SPOTLIGHT, k=NOISE_SHIFT)
+        else:
+            df, df_conc, stats, opws = run_consensus(DATASETS, COOL_SETS, EXPERIMENT_PATH,
+                                                         grid=np.arange(GRID[0], GRID[1], GRID[2]) * RESOLUTION, mis=MAX_INTERTAD,
+                                                         mts=MAX_TAD_SIZE, chrms=CHROMNAMES, method=METHOD,
+                                                         resolution=RESOLUTION, expected=EXPECTED_MEAN_TAD, exp=STAGE_NAME,
+                                                         percentile=PERCENTILE, eps=EPSILON, window_eps=WINDOW_SPOTLIGHT,
+                                                     merge_boundaries=MERGE_BOUNDARIES, k=NOISE_SHIFT, loc_size=LOC_SIZE, N=NUM_STAGES_TO_MERGE)
+        if not CONSENSUS:
+            viz_opt_curves(stats, METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000),
+                           EXPERIMENT_PATH, df_conc, RESOLUTION, stage=STAGE_NAME)
+        else:
+            for STAGE in [x.strip() for x in STAGE_NAME.split(',')]:
+                viz_opt_curves(stats[STAGE], METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000),
+                               EXPERIMENT_PATH, df_conc[df_conc.stage == STAGE], RESOLUTION, stage=STAGE)
+        viz_tads(EXPERIMENT_PATH, df_conc, DATASETS, CHROMNAMES, VIZ_TAD_STAGE, RESOLUTION, method=None,
+                 is_insulation=True, clusters=False, colors=None, percentile=99.9, vbc=VIZ_BIN_COUNT, consensus=CONSENSUS)
     else:
         opgs, df, df_conc = search_opt_gamma(DATASETS, EXPERIMENT_PATH, method=METHOD,
                                              grid=np.arange(GRID[0], GRID[1], GRID[2]), mis=MAX_INTERTAD, mts=MAX_TAD_SIZE,
                                              start_step=GRID[2], chrms=CHROMNAMES, eps=EPSILON, expected=EXPECTED_MEAN_TAD,
                                              exp=STAGE_NAME, resolution=RESOLUTION, percentile=PERCENTILE)
-        viz_opt_curves(df, METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000), EXPERIMENT_PATH)
-        viz_tads(EXPERIMENT_PATH, df_conc, DATASETS, CHROMNAMES, STAGE_NAME, RESOLUTION, method=None, is_insulation=False, clusters=False, colors=None, percentile=99.9, vbc=VIZ_BIN_COUNT)
+        viz_opt_curves(df, METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000),
+                       EXPERIMENT_PATH, df_conc, RESOLUTION, stage=STAGE_NAME)
+        viz_tads(EXPERIMENT_PATH, df_conc, DATASETS, CHROMNAMES, VIZ_TAD_STAGE, RESOLUTION, method=None,
+                 is_insulation=False, clusters=False, colors=None, percentile=99.9, vbc=VIZ_BIN_COUNT, consensus=False)
 
     time_elapsed = time.time() - in_time
 

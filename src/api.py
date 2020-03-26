@@ -24,7 +24,7 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score, silhouette_samples
 from utils import whether_to_expand, get_noisy_stripes, adjust_boundaries, find_global_optima, adjust_global_optima, \
-    get_d_score, produce_boundaries_segmentation, calc_mean_tad_size
+    get_d_score, produce_boundaries_segmentation, calc_mean_tad_size, whether_tad_noisy
 
 sns.set(context='paper', style='whitegrid')
 warnings.filterwarnings("ignore")
@@ -81,7 +81,7 @@ def download_files(input_type, input_path):
         raise Exception('You typed incorrect input_type parameter!')
 
 
-def load_cool_files(coolfiles_path, chromnames, stage_names=None):
+def load_cool_files(coolfiles_path, chromnames, resolution, stage_names=None):
     """
     Function to load coolfiles.
     :param coolfiles_path: path to the directory with coolfiles.
@@ -93,9 +93,9 @@ def load_cool_files(coolfiles_path, chromnames, stage_names=None):
     """
     if stage_names is not None:
         stage_names_new = [splitext(sn)[0] for sn in stage_names]
-        files = [x for x in glob.glob(join(coolfiles_path, '*.cool')) if splitext(basename(x))[0] in stage_names_new]
+        files = [x for x in glob.glob(join(coolfiles_path, '*.mcool')) if splitext(basename(x))[0] in stage_names_new]
     else:
-        files = [x for x in glob.glob(join(coolfiles_path, '*.cool'))]
+        files = [x for x in glob.glob(join(coolfiles_path, '*.mcool'))]
     logging.info("LOAD_COOL_FILES| List of coolfiles of interest: {}".format(str(files)))
     labels = [splitext(basename(x))[0] for x in files]
     datasets = {x: {} for x in labels}
@@ -104,7 +104,8 @@ def load_cool_files(coolfiles_path, chromnames, stage_names=None):
     logging.info("LOAD_COOL_FILES| Start loading chromosomes and stages...")
     in_time = time.time()
     for label, file in list(zip(labels, files)):
-        c = cooler.Cooler(file)
+        #c = cooler.Cooler(file)
+        c = cooler.Cooler(file + '::/resolutions/{}'.format(resolution))
         cool_sets[label] = c
         for ch in chromnames:
             mtx = c.matrix(balance=balance).fetch(ch)
@@ -116,7 +117,7 @@ def load_cool_files(coolfiles_path, chromnames, stage_names=None):
 
 
 def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, method, resolution, expected=120000,
-                      exp='3-4h', percentile=99.9, eps=0.05, window_eps=5):
+                      exp='3-4h', percentile=99.9, eps=0.05, window_eps=5, k=3):
     """
     Function to search optimal window for each chromosome. This function only for use in case of method='insulation'!
     :param datasets: python dictionary with loaded chromosomes and stages.
@@ -141,7 +142,7 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
     window values in given range, dataframe with segmentation for optimal window values and dictionary with stats for
     each chromosome.
     """
-    df = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch'])
+    df = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength'])
     opt_windows = {}
     stats = {x: {} for x in chrms}
 
@@ -161,21 +162,29 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
         logging.info("SEARCH_OPT_WINDOW| Run TAD boundaries search using windows grid for chrm {}...".format(ch))
 
         boundaries_coords_0, boundaries_0 = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, grid[0], ch,
-                                                                            method, resolution, final=False)
-        mean_tad_size_prev, sum_cov_prev, mean_ins_prev = calc_mean_tad_size(boundaries_0, filters, ch, mis, mts,
-                                                                             grid[0], resolution)
+                                                                            method, resolution, k, final=False)
+        mean_tad_size_prev, sum_cov_prev, mean_ins_prev, mean_bsc_prev, full_ins_prev, full_bsc_prev = \
+            calc_mean_tad_size(boundaries_0, filters, ch, mis, mts, grid[0], resolution)
 
         window_prev = grid[0]
+
+        f_ins_prev = full_ins_prev
+        f_bsc_prev = full_bsc_prev
+
         ins_prev = mean_ins_prev
+        bsc_prev = mean_bsc_prev
         cov_prev = sum_cov_prev
         bound_count_prev = len(boundaries_coords_0)
 
-        stats[ch][grid[0]] = (mean_tad_size_prev, cov_prev, bound_count_prev, ins_prev)
+        stats[ch][grid[0]] = (mean_tad_size_prev, cov_prev, bound_count_prev, ins_prev, bsc_prev)
 
-        df_tmp = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch'], index=np.arange(len(boundaries_coords_0)))
+        df_tmp = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength'],
+                              index=np.arange(len(boundaries_coords_0)))
         df_tmp.loc[:, ['bgn', 'end']] = boundaries_coords_0
         df_tmp['window'] = grid[0]
         df_tmp['ch'] = ch
+        df_tmp.loc[:, 'insulation_score'] = f_ins_prev
+        df_tmp.loc[:, 'boundary_strength'] = f_bsc_prev
         df = pd.concat([df, df_tmp])
 
         local_optimas = {}
@@ -185,6 +194,8 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
         covs.append(cov_prev)
         ins = []
         ins.append(ins_prev)
+        bsc = []
+        bsc.append(bsc_prev)
         bounds_cnt = []
         bounds_cnt.append(bound_count_prev)
 
@@ -193,22 +204,26 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
 
         for window in grid[1:]:
             boundaries_coords, boundaries = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, window, ch,
-                                                                            method, resolution, final=False)
-            mean_tad_size, sum_cov, mean_ins = calc_mean_tad_size(boundaries, filters, ch, mis, mts, window, resolution)
+                                                                            method, resolution, k, final=False)
+            mean_tad_size, sum_cov, mean_ins, mean_bsc, full_ins, full_bsc = calc_mean_tad_size(boundaries, filters, ch, mis, mts, window, resolution)
 
             mean_tad_sizes.append(mean_tad_size)
             cov = sum_cov
             covs.append(cov)
             ins.append(mean_ins)
+            bsc.append(mean_bsc)
             bound_count = len(boundaries_coords)
             bounds_cnt.append(bound_count)
 
-            stats[ch][window] = (mean_tad_size, cov, bound_count, mean_ins)
+            stats[ch][window] = (mean_tad_size, cov, bound_count, mean_ins, mean_bsc)
 
-            df_tmp = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch'], index=np.arange(len(boundaries_coords)))
+            df_tmp = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength'],
+                                  index=np.arange(len(boundaries_coords)))
             df_tmp.loc[:, ['bgn', 'end']] = boundaries_coords
             df_tmp['window'] = window
             df_tmp['ch'] = ch
+            df_tmp.loc[:, 'insulation_score'] = full_ins
+            df_tmp.loc[:, 'boundary_strength'] = full_bsc
             df = pd.concat([df, df_tmp])
             if (mean_tad_size - expected / resolution) * (mean_tad_size_prev - expected / resolution) <= 0:
                 is_exp_tad_size_reached = True
@@ -224,6 +239,8 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
                     [x for x in bounds_cnt if str(x) != 'nan']) >= window_eps:
                 window_cnts = np.asarray([x for x in bounds_cnt if str(x) != 'nan'][-window_eps:])
                 window_cnts = abs(window_cnts - tads_expected_cnt)
+                # add "and window > 150000" in the end of below if-condition if you want to limit output to the certain
+                # window value:
                 if np.mean(abs(window_cnts[:-1] - window_cnts[-1]) / window_cnts[-1]) < eps:
                     break
 
@@ -238,23 +255,25 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
         opt_windows[ch] = opt_window
 
         logging.info("SEARCH_OPT_WINDOW| Found optimal window for chrm {}: {}".format(ch, opt_window))
-        _, _ = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, opt_window, ch, method, resolution,
+        _, _ = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, opt_window, ch, method, resolution, k,
                                                final=True)
         logging.info("SEARCH_OPT_WINDOW| End chromosome {}".format(ch))
 
     df.loc[:, 'window'] = df.window.values.astype(int)
     df.loc[:, 'bgn'] = df.bgn.values.astype(int)
     df.loc[:, 'end'] = df.end.values.astype(int)
+    df.loc[:, 'insulation_score'] = df.insulation_score.values.astype(float)
+    df.loc[:, 'boundary_strength'] = df.boundary_strength.values.astype(float)
     df.reset_index(drop=True, inplace=True)
 
-    df_opt = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch'])
+    df_opt = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength'])
     for ch in chrms:
         df_opt = pd.concat([df_opt, df[(df['ch'] == ch) & (df['window'] == opt_windows[ch])]])
     df_opt.reset_index(drop=True, inplace=True)
 
-    df.to_csv(join(experiment_path, "all_tads_{0}_{1}kb_{2}kb.csv".format(method, int(expected / 1000),
+    df.to_csv(join(experiment_path, "all_tads_{}_{}_{}kb_{}kb.csv".format(exp, method, int(expected / 1000),
                                                                           int(resolution / 1000))), sep='\t')
-    df_opt.to_csv(join(experiment_path, "opt_tads_{0}_{1}kb_{2}kb.csv".format(method, int(expected / 1000),
+    df_opt.to_csv(join(experiment_path, "opt_tads_{}_{}_{}kb_{}kb.csv".format(exp, method, int(expected / 1000),
                                                                                       int(resolution / 1000))), sep='\t')
 
     logging.info("SEARCH_OPT_WINDOW| Write optimal segmentation in file {}".format(join(experiment_path,
@@ -338,7 +357,118 @@ def search_opt_gamma(datasets, experiment_path, method, grid, mis, mts, start_st
     return opt_gammas, df, df_concretized
 
 
-def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path):
+def run_consensus(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, method, resolution, expected=120000,
+                      exp='nuclear_cycle_14, 3-4h', percentile=99.9, eps=0.05, window_eps=5, merge_boundaries=False, k=3, loc_size=2, N=4):
+    """
+    Function to search consensus set of boundaries ampng given set of stages (indicated in exp parameter)
+    :param datasets: python dictionary with loaded chromosomes and stages.
+    :param experiment_path: path to experiment directory.
+    :param method: segmentation method (only armatus, modularity and insulation available).
+    :param grid: range for optimal gamma value search.
+    :param mis: maximum intertad size corresponds to the method (armatus or modularity).
+    :param mts: maximum tad size.
+    :param start_step: start step to search optimal gamma value. It is equal to step in grid param.
+    :param chrms: list of chromosomes of interest.
+    :param eps: delta for mean tad size during gamma search. Normally equal to 1e-2.
+    Lower values gives you more accurate optimal gamma value in the end.
+    :param expected: tad size to be expected. For Drosophila melanogaster it could be 120000, 60000 or 30000 bp.
+    :param exp: stage of development by which we will search TADs segmentation. It should be single stage.
+    Normally -- last one, by which TADs are getting their formation.
+    For Drosophila melanogaster this stage should be 3-4h or nuclear_cycle_14 in case you have not 3-4h.
+    :param resolution: Hi-C resolution of your coolfiles.
+    :param percentile: percentile for cooler preparations and Hi-C vizualization.
+    Normally should be 99.9, but you could set another value.
+    :param merge_boundaries: whether to merge close boundaries into a single one (True or False)
+    :return: python dictionary with optimal gamma values for each chromosome, dataframe with segmentation for all
+    gamma values in given range, dataframe with segmentation for optimal gamma values.
+    """
+    stages = [x.strip() for x in exp.split(',')]
+    df_all = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength', 'stage'])
+    df_opt_all = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength', 'stage'])
+    stats_all = dict.fromkeys(stages, None)
+    opws_all = dict.fromkeys(stages, None)
+
+    logging.info("RUN_CONSENSUS| Start search consensus segmentation...")
+    time_start = time.time()
+    for stage in stages:
+        logging.info("RUN_CONSENSUS| Start stage {}".format(stage))
+        df, df_conc, stats, opws = search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrms,
+                                                     method, resolution, expected, stage, percentile, eps,
+                                                     window_eps, k)
+        df['stage'] = stage
+        df_conc['stage'] = stage
+        df_all = pd.concat([df_all, df], ignore_index=True)
+        df_opt_all = pd.concat([df_opt_all, df_conc], ignore_index=True)
+        stats_all[stage] = stats
+        opws_all[stage] = opws
+        logging.info("RUN_CONSENSUS| End stage {}".format(stage))
+
+    df_all.sort_values(['ch', 'window', 'bgn', 'stage'], ascending=[True, True, True, True], inplace=True,
+                       ignore_index=True)
+    df_opt_all.sort_values(['ch', 'bgn', 'stage'], ascending=[True, True, True], inplace=True, ignore_index=True)
+
+    # filter boundaries
+    logging.info("RUN_CONSENSUS| Start filtering consensus boundaries...")
+    filters_final = dict.fromkeys(stages, None)
+    for stage in stages:
+        filters_final[stage] = {}
+        for ch in chrms:
+            filters, mtx, good_bins = get_noisy_stripes(datasets, ch, method, resolution, stage, percentile=percentile)
+            filters_final[stage][ch] = filters[ch]
+    indices_selected = []
+    logging.info("RUN_CONSENSUS| Before filtering we have {} consensus boundaries in total".format(df_opt_all.shape[0]))
+    for idx in range(df_opt_all.shape[0]):
+        if not whether_tad_noisy(np.asarray(df_opt_all.loc[idx][['bgn', 'end']]),
+                            filters_final[df_opt_all.loc[idx]['stage']],
+                            df_opt_all.loc[idx]['ch'], method='insulation', resolution=resolution, k=k):
+            indices_selected.append(idx)
+    df_opt_all = df_opt_all.loc[indices_selected]
+    df_opt_all.index = list(range(df_opt_all.shape[0]))
+    logging.info("RUN_CONSENSUS| After filtering we have {} consensus boundaries in total".format(df_opt_all.shape[0]))
+    logging.info("RUN_CONSENSUS| End filtering consensus boundaries...")
+
+    # merge boundaries
+    new_consensus = pd.DataFrame()
+    if merge_boundaries:
+        logging.info("RUN_CONSENSUS| Start merging boundaries...")
+        idx = 0
+        while idx <= df_opt_all.shape[0] - N:
+            sub_df = df_opt_all.loc[idx: idx + N - 1]
+            if (sub_df.loc[idx + N - 1]['bgn'] - sub_df.loc[idx]['bgn']) // resolution <= loc_size and len(set(sub_df['stage'])) == N:
+                new_consensus = new_consensus.append(sub_df.loc[sub_df.iloc[sub_df['boundary_strength'].values.argmax()].name])
+                idx += N
+            else:
+                idx += 1
+        new_consensus.index = list(range(new_consensus.shape[0]))
+        logging.info(
+            "RUN_CONSENSUS| After merging we have {} consensus boundaries in total".format(new_consensus.shape[0]))
+        logging.info("RUN_CONSENSUS| End merging boundaries...")
+
+    df_all.to_csv(join(experiment_path, "consensus_all_tads_{0}_{1}kb_{2}kb.csv".format(method, int(expected / 1000),
+                                                                          int(resolution / 1000))), sep='\t')
+
+    if merge_boundaries:
+        new_consensus.to_csv(
+            join(experiment_path, "consensus_opt_tads_{0}_{1}kb_{2}kb.csv".format(method, int(expected / 1000),
+                                                                                  int(resolution / 1000))), sep='\t')
+    else:
+        df_opt_all.to_csv(join(experiment_path, "consensus_opt_tads_{0}_{1}kb_{2}kb.csv".format(method, int(expected / 1000),
+                                                                                      int(resolution / 1000))), sep='\t')
+
+    logging.info("RUN_CONSENSUS| Write optimal consensus segmentation in file {}".format(join(experiment_path,
+                    "consensus_opt_tads_{0}_{1}kb_{2}kb.csv".format(method, int(expected / 1000), int(resolution / 1000)))))
+
+    time_delta = time.time() - time_start
+    m, s = divmod(time_delta, 60); h, m = divmod(m, 60)
+    logging.info("RUN_CONSENSUS| Searching consensus segmentation completed in {:.0f}h {:.0f}m {:.0f}s".format(h, m, s))
+
+    if merge_boundaries:
+        return df_all, new_consensus, stats_all, opws_all
+    else:
+        return df_all, df_opt_all, stats_all, opws_all
+
+
+def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path, opt_df, resolution, stage='3-4h'):
     """
     Function to vizualize curves of coverage value, mean tad size and number of tads depend on gamma values in our grid.
     :param df: for modularity and armatus -- dataframe with all segmentations based on all gamma values from our grid.
@@ -357,6 +487,7 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path):
             gr_cov = [od[i][1] for i in od]
             gr_count = [od[i][2] for i in od]
             gr_ins = [od[i][3] for i in od]
+            gr_bsc = [od[i][4] for i in od]
             w_range = [i for i in od]
         else:
             gr_mean = df.query('ch=="{}"'.format(ch)).groupby(['gamma', 'ch']).mean().reset_index().sort_values(['ch', 'gamma'])
@@ -369,7 +500,9 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path):
 
         par1 = host.twinx()
         par2 = host.twinx()
-        if method == 'insulation': par3 = host.twinx()
+        if method == 'insulation':
+            par3 = host.twinx()
+            par4 = host.twinx()
 
         offset = 70
         new_fixed_axis = par1.get_grid_helper().new_fixed_axis
@@ -385,6 +518,11 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path):
             par3.axis["left"] = new_fixed_axis(loc="left",
                                                axes=par3,
                                                offset=(-offset, 0))
+            offset = 220
+            new_fixed_axis = par4.get_grid_helper().new_fixed_axis
+            par4.axis["left"] = new_fixed_axis(loc="left",
+                                               axes=par4,
+                                               offset=(-offset, 0))
 
         if method == 'insulation':
             host.set_xlabel("Window")
@@ -393,14 +531,20 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path):
         host.set_ylabel("Mean")
         par1.set_ylabel("Coverage")
         par2.set_ylabel("Count")
-        if method == 'insulation': par3.set_ylabel("Insulation")
+        if method == 'insulation':
+            par3.set_ylabel("Insulation")
+            par4.set_ylabel("Boundary strength")
 
         if method == 'insulation':
             p1, = host.plot(w_range, gr_mean, label="{} mean".format(ch))
             p1, = host.plot([min(w_range), max(w_range)], [expected_mts, expected_mts], color=p1.get_color())
+            p1, = host.plot(
+                [list(set(opt_df[opt_df.ch == ch]['window']))[0], list(set(opt_df[opt_df.ch == ch]['window']))[0]],
+                [0, expected_mts], color=p1.get_color(), linestyle='dashed')
             p2, = par1.plot(w_range, gr_cov, label="{} coverage".format(ch))
             p3, = par2.plot(w_range, gr_count, label="{} count".format(ch))
             p4, = par3.plot(w_range, gr_ins, label="{} insulation".format(ch))
+            p5, = par4.plot(w_range, gr_bsc, label="{} boundary strength".format(ch))
         else:
             p1, = host.plot(gr_mean.gamma, gr_mean.length, label="{} mean".format(ch))
             p1, = host.plot([min(df[df['ch'] == ch]['gamma']), max(df[df['ch'] == ch]['gamma'])], [expected_mts, expected_mts],
@@ -412,15 +556,19 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path):
         host.axis["left"].label.set_color(p1.get_color())
         par1.axis["left"].label.set_color(p2.get_color())
         par2.axis["left"].label.set_color(p3.get_color())
-        if method == 'insulation': par3.axis["left"].label.set_color(p4.get_color())
+        if method == 'insulation':
+            par3.axis["left"].label.set_color(p4.get_color())
+            par4.axis["left"].label.set_color(p5.get_color())
 
-        plt.title(ch + ': ' + method + ': ' + str(mts) + 'Kb')
+        plt.title('Stage {}, Chr {}, Method: {}, expected TAD size: {} Kb, optimal window: {} / {} = {}'.format(stage,
+                ch, method, str(mts), list(set(opt_df[opt_df.ch == ch]['window']))[0], resolution,
+                list(set(opt_df[opt_df.ch == ch]['window']))[0] / resolution))
 
         plt.draw()
-        plt.savefig(join(data_path, ch + '_' + method + '_' + str(mts) + 'Kb' + '.png'))
+        plt.savefig(join(data_path, stage + '_' + ch + '_' + method + '_' + str(mts) + 'Kb' + '.png'))
 
 
-def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, is_insulation=False, clusters=False, colors=None, percentile=99.9, vbc=1000):
+def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, is_insulation=False, clusters=False, colors=None, percentile=99.9, vbc=1000, consensus=False):
     """
     Function to vizualize TADs on our Hi-C matrix.
     :param data_path: path to experiment's directory.
@@ -445,6 +593,11 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
         for begin, end in zip(begin_arr, end_arr):
             df_tmp = df.query("ch=='{}'".format(ch))
             segments = df_tmp[['bgn', 'end']].values
+            if consensus == True:
+                boundaries_stages = list(df_tmp['stage'])
+                list_of_stages = list(set(list(df_tmp['stage'])))
+                dict_of_stages = dict(zip(list_of_stages, list(range(len(list_of_stages)))))
+                colors_consensus = sns.color_palette('rainbow', len(list_of_stages))
             mtx_cor = datasets[exp][ch]
             np.fill_diagonal(mtx_cor, 0)
             plt.figure(figsize=[20, 20])
@@ -458,32 +611,40 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
                 for l, seg in zip(df_tmp[clusters_name].values, segments):
                     if is_insulation:
                         if int(seg[0] / resolution) < end and int(seg[1] / resolution) > begin:
-                            for i in range(5):
+                            for i in range(8):
                                 plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
                                          [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
-                                         color=colors[l])
+                                         color=colors[l], linewidth=10)
                                 plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
                                          [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
-                                         color=colors[l])
+                                         color=colors[l], linewidth=10)
                     else:
                         if seg[0] < end and seg[1] > begin:
                             plt.plot([seg[0] - begin, seg[1] - begin], [seg[0] - begin, seg[0] - begin], color=colors[l])
                             plt.plot([seg[1] - begin, seg[1] - begin], [seg[0] - begin, seg[1] - begin], color=colors[l])
             else:
-                for seg in segments:
+                for ii, seg in enumerate(segments):
                     if is_insulation:
                         if int(seg[0] / resolution) < end and int(seg[1] / resolution) > begin:
-                            for i in range(5):
-                                plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                         [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
-                                         color='green')
-                                plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                         [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
-                                         color='green')
+                            for i in range(8):
+                                if not consensus:
+                                    plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                                             color='blue', linewidth=10)
+                                    plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                                             color='blue', linewidth=10)
+                                else:
+                                    plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                                             color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=10)
+                                    plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                                             color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=10)
                     else:
                         if seg[0] < end and seg[1] > begin:
-                            plt.plot([seg[0] - begin, seg[1] - begin], [seg[0] - begin, seg[0] - begin], color='green')
-                            plt.plot([seg[1] - begin, seg[1] - begin], [seg[0] - begin, seg[1] - begin], color='green')
+                            plt.plot([seg[0] - begin, seg[1] - begin], [seg[0] - begin, seg[0] - begin], color='blue', linewidth=10)
+                            plt.plot([seg[1] - begin, seg[1] - begin], [seg[0] - begin, seg[1] - begin], color='blue', linewidth=10)
 
             plt.title(ch + '; ' + exp + '; ' + str(begin) + ':' + str(end) + '; ' + 'clustering: ' + str(clusters))
             plt.draw()
@@ -552,7 +713,7 @@ def compute_ins_z_scores(seg_path, cool_sets, stages, chrms, ignore_diags=2):
         ins_scores.reset_index(drop=True, inplace=True)
         segmentation['ins_score_{}'.format(stage)] = list(map(lambda x, y, z: ins_scores[
             (ins_scores['start'] == x) & (ins_scores['end'] == y) & (ins_scores['chrom'] == z)][
-            'log2_insulation_score'].iloc[0], segmentation['bgn'], segmentation['end'], segmentation['ch']))
+            'log2_insulation_score'].iloc[-1], segmentation['bgn'], segmentation['end'], segmentation['ch']))
         segmentation.loc[:, 'z_ins_score_{}'.format(stage)] = 0
     segmentation[['z_ins_score_{}'.format(x) for x in stages]] = np.array([x for x in segmentation.loc[:,
                                                                                       ['ins_score_{}'.format(x) for x in

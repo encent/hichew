@@ -136,7 +136,7 @@ def run_pipeline():
     in_time = time.time()
 
     COOLFILES_PATH = download_files(INPUT_TYPE, INPUT_PATH)
-    DATASETS, COOL_SETS = load_cool_files(COOLFILES_PATH, CHROMNAMES, None)
+    DATASETS, COOL_SETS = load_cool_files(COOLFILES_PATH, CHROMNAMES, RESOLUTION, None)
     if IS_INSULATION:
         DATA_W_D_SCORES = compute_ins_z_scores(SEGMENTATION_PATH, COOL_SETS, list(COOL_SETS.keys()), CHROMNAMES, ignore_diags=2)
     else:

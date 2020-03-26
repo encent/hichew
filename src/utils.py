@@ -25,14 +25,27 @@ def calc_mean_tad_size(boundaries, filters, ch, mis, mts, wind, resolution):
     """
     select_tads = pd.DataFrame(index=list(range(boundaries.shape[0] - 1)),
                                columns=['left_start', 'left_end', 'right_start', 'right_end', 'left_insulation',
-                                        'right_insulation', 'length', 'is_normal'])
+                                        'right_insulation', 'left_boundary_strength', 'right_boundary_strength',
+                                        'length', 'is_normal'])
     select_tads['left_start'] = list(boundaries.iloc[:-1]['start'])
     select_tads['left_end'] = list(boundaries.iloc[:-1]['end'])
     select_tads['right_start'] = list(boundaries.iloc[1:]['start'])
     select_tads['right_end'] = list(boundaries.iloc[1:]['end'])
     select_tads['left_insulation'] = list(boundaries.iloc[:-1]['log2_insulation_score_{}'.format(int(wind))])
     select_tads['right_insulation'] = list(boundaries.iloc[1:]['log2_insulation_score_{}'.format(int(wind))])
+    select_tads['left_boundary_strength'] = list(boundaries.iloc[:-1]['boundary_strength_{}'.format(int(wind))])
+    select_tads['right_boundary_strength'] = list(boundaries.iloc[1:]['boundary_strength_{}'.format(int(wind))])
     select_tads['length'] = list((select_tads['right_start'] - select_tads['left_end']) / resolution)
+
+    try:
+        full_ins = list(select_tads['left_insulation']) + [list(select_tads['right_insulation'])[-1]]
+    except Exception as e:
+        full_ins = []
+    try:
+        full_bsc = list(select_tads['left_boundary_strength']) + [list(select_tads['right_boundary_strength'])[-1]]
+    except Exception as e:
+        full_bsc = []
+
     select_tads = select_tads[(select_tads['length'] > mis) & (select_tads['length'] < mts)]
     select_tads['is_normal'] = list(map(
         lambda x, y: True if filters[ch][(filters[ch][:, 0] >= x) & (filters[ch][:, 1] <= y)].shape[0] == 0 else False,
@@ -42,18 +55,23 @@ def calc_mean_tad_size(boundaries, filters, ch, mis, mts, wind, resolution):
     mean_tad = np.mean(select_tads['length'])
     try:
         mean_ins = np.mean(list(select_tads['left_insulation']) + [list(select_tads['right_insulation'])[-1]])
-    except:
+    except Exception as e:
         mean_ins = np.nan
+    try:
+        mean_bsc = np.mean(list(select_tads['left_boundary_strength']) + [list(select_tads['right_boundary_strength'])[-1]])
+    except Exception as e:
+        mean_bsc = np.nan
     sum_cov = np.sum(select_tads['length'])
 
     if np.isnan(mean_tad): mean_tad = 0
     if np.isnan(sum_cov): sum_cov = 0
     if np.isnan(mean_ins): mean_ins = 0
+    if np.isnan(mean_bsc): mean_bsc = 0
 
-    return mean_tad, sum_cov, mean_ins
+    return mean_tad, sum_cov, mean_ins, mean_bsc, full_ins, full_bsc
 
 
-def produce_boundaries_segmentation(clr, mtx, filters, window, ch, method, resolution, final=False):
+def produce_boundaries_segmentation(clr, mtx, filters, window, ch, method, resolution=5000, k=3, final=False):
     """
     Function produces single segmentation (TADs boundaries calling) of mtx with one window with the algorithm provided.
     :param clr: cooler file which corresponds to single stage of development (by which we search segmentation).
@@ -68,27 +86,37 @@ def produce_boundaries_segmentation(clr, mtx, filters, window, ch, method, resol
     boundaries -- corresponding dataframe.
     """
     ins_scores = cooltools.insulation.calculate_insulation_score(clr, int(window), ignore_diags=2, chromosomes=[ch])
-    boundaries = cooltools.insulation.find_boundaries(ins_scores)
+    boundaries = cooltools.insulation.find_boundaries(ins_scores, min_dist_bad_bin=k)
+    #boundaries = cooltools.insulation._find_insulating_boundaries_dense(clr, int(window), min_dist_bad_bin=k, ignore_diags=2, chromosomes=[ch])
     boundaries = boundaries[
         (boundaries['boundary_strength_{}'.format(int(window))].notnull())]
     boundaries.index = list(range(boundaries.shape[0]))
     boundaries_coords = np.asarray(boundaries[['start', 'end']])
 
-    metric_values = np.array([calc_noisy_metric(x, filters, ch, method) for x in boundaries_coords])
-    hist_arr = np.array(sorted(metric_values))
-    hist_arr = hist_arr[hist_arr > 0]
+    metric_values = np.array([calc_noisy_metric(x, filters, ch, method, resolution, k) for x in boundaries_coords])
+    thresh = 0
 
-    try:
-        noise_freq = np.sum(filters[ch][:, 1] - filters[ch][:, 0]) / (mtx.shape[0] * resolution)
-        if final: logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| Noise frequency for {} opt window: {}'.format(int(window),
-                                                                                                         noise_freq))
-        thresh = (hist_arr[:int(len(hist_arr) * noise_freq)][-1] + hist_arr[int(len(hist_arr) * noise_freq)]) / 2
-        if final: logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| For {} opt window delete {} boundaries out of {}.'.format(
-            int(window), boundaries_coords.shape[0] - boundaries_coords[metric_values > thresh].shape[0],
-            boundaries_coords.shape[0]))
-        return boundaries_coords[metric_values > thresh], boundaries[metric_values > thresh]
-    except Exception as e:
-        return boundaries_coords, boundaries
+    # hist_arr = np.array(sorted(metric_values))
+    # hist_arr = hist_arr[hist_arr > 0]
+
+    # try:
+    #     noise_freq = np.sum(filters[ch][:, 1] - filters[ch][:, 0]) / (mtx.shape[0] * resolution)
+    #     if final: logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| Noise frequency for {} opt window: {}'.format(int(window),
+    #                                                                                                      noise_freq))
+    #     thresh = (hist_arr[:int(len(hist_arr) * noise_freq)][-1] + hist_arr[int(len(hist_arr) * noise_freq)]) / 2
+    #     if final: logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| For {} opt window delete {} boundaries out of {}.'.format(
+    #         int(window), boundaries_coords.shape[0] - boundaries_coords[metric_values > thresh].shape[0],
+    #         boundaries_coords.shape[0]))
+    #     return boundaries_coords[metric_values > thresh], boundaries[metric_values > thresh]
+    # except Exception as e:
+    #     return boundaries_coords, boundaries
+
+    if final:
+        logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| For {} opt window delete {} boundaries out of {}.'.format(
+             int(window), boundaries_coords.shape[0] - boundaries_coords[metric_values > thresh].shape[0],
+             boundaries_coords.shape[0]))
+
+    return boundaries_coords[metric_values > thresh], boundaries[metric_values > thresh]
 
 
 def produce_tads_segmentation(mtx, filters, gamma, ch, good_bins='default', method='armatus', max_intertad_size=3,
@@ -133,7 +161,7 @@ def produce_tads_segmentation(mtx, filters, gamma, ch, good_bins='default', meth
     mask = (v > max_intertad_size) & (np.isfinite(v)) & (v < max_tad_size)
     segments = segments[mask]
 
-    metric_values = np.array([calc_noisy_metric(x, filters, ch, method) for x in segments])
+    metric_values = np.array([calc_noisy_metric(x, filters, ch, method, resolution=0, k=0) for x in segments])
     hist_arr = np.array(sorted(metric_values))
     hist_arr = hist_arr[hist_arr > 0]
     try:
@@ -471,7 +499,7 @@ def get_noisy_stripes(datasets, ch, method, resolution, exp='3-4h', percentile=9
     return filters, mtx, good_bins
 
 
-def whether_tad_noisy(x, filters, ch):
+def whether_tad_noisy(x, filters, ch, method, resolution=5000, k=3):
     """
     Function determines whether TAD is noisy.
     :param x: TAD (tuple or list of two values - begin and end).
@@ -480,18 +508,24 @@ def whether_tad_noisy(x, filters, ch):
     :return: True if TAD is 100% noisy (lies in noisy stripe fully or partially), and False otherwise
     """
     for bgn_f, end_f in filters[ch]:
-        if x[0] <= end_f and x[0] >= bgn_f:
+        if method == 'insulation':
+            bgn_f_new = bgn_f - resolution * k
+            end_f_new = end_f + resolution * k
+        else:
+            bgn_f_new = bgn_f
+            end_f_new = end_f
+        if x[0] <= end_f_new and x[0] >= bgn_f_new:
             return True
-        if x[1] <= end_f and x[1] >= bgn_f:
+        if x[1] <= end_f_new and x[1] >= bgn_f_new:
             return True
-        if x[1] <= end_f and x[0] >= bgn_f:
+        if x[1] <= end_f_new and x[0] >= bgn_f_new:
             return True
-        if x[0] <= bgn_f and x[1] >= end_f and end_f - bgn_f != 0:
+        if x[0] <= bgn_f_new and x[1] >= end_f_new and end_f_new - bgn_f_new != 0:
             return True
     return False
 
 
-def calc_noisy_metric(x, filters, ch, method):
+def calc_noisy_metric(x, filters, ch, method, resolution=5000, k=3):
     """
     Function to calculate noisy metric (characteristic) for each TAD.
     :param x: TAD
@@ -503,9 +537,9 @@ def calc_noisy_metric(x, filters, ch, method):
     If its function returns False for current TAD, then we calculate our metric.
     If True -- we return -1 value of metric.
     """
-    if whether_tad_noisy(x, filters, ch):
+    if whether_tad_noisy(x, filters, ch, method, resolution, k):
         return -1
-    else:
+    elif method != 'insulation':
         try:
             left_stripe = filters[ch][np.where(filters[ch][:, 1] == filters[ch][:, 1][
                 np.argmin(x[0] - filters[ch][:, 1][(x[0] - filters[ch][:, 1]) >= 0])])[0][0]]
@@ -531,6 +565,8 @@ def calc_noisy_metric(x, filters, ch, method):
         else:
             right_side_metric = 1e10
         return min(left_side_metric, right_side_metric)
+    else:
+        return 1
 
 
 def get_d_score(mtx, segmentation):
