@@ -431,13 +431,20 @@ def run_consensus(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, m
     new_consensus = pd.DataFrame()
     if merge_boundaries:
         logging.info("RUN_CONSENSUS| Start merging boundaries...")
+        logging.info(
+            "RUN_CONSENSUS| Before merging we have {} consensus boundaries in total".format(df_opt_all.shape[0]))
         idx = 0
-        while idx <= df_opt_all.shape[0] - N:
-            sub_df = df_opt_all.loc[idx: idx + N - 1]
-            if (sub_df.loc[idx + N - 1]['bgn'] - sub_df.loc[idx]['bgn']) // resolution <= loc_size and len(set(sub_df['stage'])) == N:
-                new_consensus = new_consensus.append(sub_df.loc[sub_df.iloc[sub_df['boundary_strength'].values.argmax()].name])
-                idx += N
+        while idx < df_opt_all.shape[0]:
+            if idx <= df_opt_all.shape[0] - N:
+                sub_df = df_opt_all.loc[idx: idx + N - 1]
+                if (sub_df.loc[idx + N - 1]['bgn'] - sub_df.loc[idx]['bgn']) // resolution <= loc_size and len(set(sub_df['stage'])) == N:
+                    new_consensus = new_consensus.append(sub_df.loc[sub_df.iloc[sub_df['boundary_strength'].values.argmax()].name])
+                    idx += N
+                else:
+                    new_consensus = new_consensus.append(sub_df.iloc[0])
+                    idx += 1
             else:
+                new_consensus = new_consensus.append(df_opt_all.loc[idx])
                 idx += 1
         new_consensus.index = list(range(new_consensus.shape[0]))
         logging.info(
