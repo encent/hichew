@@ -4,8 +4,9 @@ import logging
 import sys
 import time
 import warnings
+import json
 from os import makedirs
-from os.path import abspath, normpath, join, isdir, splitext
+from os.path import abspath, normpath, join, isdir, splitext, exists
 
 import numpy as np
 from api import download_files, load_cool_files, search_opt_gamma, viz_opt_curves, viz_tads, search_opt_window, \
@@ -41,6 +42,18 @@ def run_pipeline():
     parser.add_argument('-s', '--stage', type=str, default='3-4h_repl_merged_5kb',
                         help='Name of coolfile(s) (with or without extension) corresponding to the stage of development '
                              'by which TADs optimal segmentation search will be run.')
+    parser.add_argument('-f', '--filtration', type=str, default='auto',
+                        help='Type of boundaries filtration: auto or custom')
+    parser.add_argument('-bstp', '--bs_thresholds_path', type=str, default='../data/boundary_strength_thresholds.json',
+                        help='Path to the file with boundary strength thresholds '
+                             '(specify in case of filtration == custom). '
+                             'Place name of coolfiles without extension as keys of json '
+                             'and boundary strength thresholds as values (0 to 1, where 0 means no filtration and '
+                             '1 means the strongest filtration (no boundaries)')
+    parser.add_argument('-bstgp', '--bs_thresholds_grid_path', type=str, default='../data/boundary_strength_thresholds_grid.json',
+                        help='Path to the file with boundary strength thresholds grid '
+                             '(specify in case of filtration == auto). '
+                             'Place python-like list of threshold values into this file, e.g. [0.1, 0.3, 0.5]')
     parser.add_argument('-c', '--consensus', type=bool, default=False,
                         help='If True -- segmentation runs for all stages indicated in stage argument; '
                              'if False -- segmentation runs for one stage indicated in stage argument')
@@ -93,6 +106,9 @@ def run_pipeline():
 
     EPSILON = args.epsilon
     STAGE_NAME = args.stage
+    FILTRATION = args.filtration
+    THRESHOLDS = args.bs_thresholds_path
+    THRESHOLDS_GRID = args.bs_thresholds_grid_path
     CONSENSUS = args.consensus
     MERGE_BOUNDARIES = args.merge_boundaries
     RESOLUTION = args.resolution
@@ -119,6 +135,17 @@ def run_pipeline():
     elif METHOD != 'insulation':
         WINDOW_SPOTLIGHT = None
 
+    if exists(THRESHOLDS):
+        with open(THRESHOLDS) as f:
+            THRESHOLDS_DATA = json.load(f)
+    else:
+        THRESHOLDS_DATA = None
+    if exists(THRESHOLDS_GRID):
+        with open(THRESHOLDS_GRID) as f:
+            THRESHOLDS_GRID_DATA = json.load(f)
+    else:
+        THRESHOLDS_GRID_DATA = None
+
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
     logging.basicConfig(filename=join(abspath(normpath(EXPERIMENT_PATH)), 'segmentation.log'), filemode='a',
@@ -129,12 +156,14 @@ def run_pipeline():
     logging.info("RUN_PIPELINE| running pipeline...")
     logging.info("RUN_PIPELINE| input command line params:\n"
                  "input_type: {}\ninput_path: {}\nexperiment_name: {}\n"
-                 "experiment_path: {}\nepsilon: {}\nstage_name: {}\nconsensus: {}\nmerge_boundaries: {}\n"
+                 "experiment_path: {}\nepsilon: {}\nstage_name: {}\nfiltration: {}\nthresholds: {}\n"
+                 "thresholds_grid: {}\nconsensus: {}\nmerge_boundaries: {}\n"
                  "resolution: {}\nchromnames: {}\nmethod: {}\ngrid: {}\n"
                  "expected_mean_tad: {}\nmax_intertad: {}\nmax_tad_size: {}\npercentile: {}\nviz_bin_count: {}\n"
                  "window_spotlight: {}\nviz_tad_stage: {}\nnoise_shift: {}\nloc_size: {}\n"
                  "num_stages_to_merge: {}".format(INPUT_TYPE, INPUT_PATH,
-                                            EXPERIMENT_NAME, EXPERIMENT_PATH, EPSILON, STAGE_NAME, CONSENSUS,
+                                            EXPERIMENT_NAME, EXPERIMENT_PATH, EPSILON, STAGE_NAME, FILTRATION,
+                                                  str(THRESHOLDS_DATA), str(THRESHOLDS_GRID_DATA), CONSENSUS,
                                             MERGE_BOUNDARIES, RESOLUTION, str(CHROMNAMES), METHOD, str(GRID),
                                             EXPECTED_MEAN_TAD, MAX_INTERTAD, MAX_TAD_SIZE, PERCENTILE, VIZ_BIN_COUNT,
                                             WINDOW_SPOTLIGHT, VIZ_TAD_STAGE, NOISE_SHIFT, LOC_SIZE, NUM_STAGES_TO_MERGE))
@@ -152,21 +181,27 @@ def run_pipeline():
                                                          grid=np.arange(GRID[0], GRID[1], GRID[2]) * RESOLUTION, mis=MAX_INTERTAD,
                                                          mts=MAX_TAD_SIZE, chrms=CHROMNAMES, method=METHOD,
                                                          resolution=RESOLUTION, expected=EXPECTED_MEAN_TAD, exp=STAGE_NAME,
-                                                         percentile=PERCENTILE, eps=EPSILON, window_eps=WINDOW_SPOTLIGHT, k=NOISE_SHIFT)
+                                                         percentile=PERCENTILE, eps=EPSILON,
+                                                         window_eps=WINDOW_SPOTLIGHT, k=NOISE_SHIFT,
+                                                         filtration=FILTRATION, bs_thresholds=THRESHOLDS_DATA,
+                                                         bs_thresholds_grid=THRESHOLDS_GRID_DATA)
         else:
             df, df_conc, stats, opws = run_consensus(DATASETS, COOL_SETS, EXPERIMENT_PATH,
                                                          grid=np.arange(GRID[0], GRID[1], GRID[2]) * RESOLUTION, mis=MAX_INTERTAD,
                                                          mts=MAX_TAD_SIZE, chrms=CHROMNAMES, method=METHOD,
                                                          resolution=RESOLUTION, expected=EXPECTED_MEAN_TAD, exp=STAGE_NAME,
                                                          percentile=PERCENTILE, eps=EPSILON, window_eps=WINDOW_SPOTLIGHT,
-                                                     merge_boundaries=MERGE_BOUNDARIES, k=NOISE_SHIFT, loc_size=LOC_SIZE, N=NUM_STAGES_TO_MERGE)
+                                                     merge_boundaries=MERGE_BOUNDARIES, k=NOISE_SHIFT,
+                                                     loc_size=LOC_SIZE, N=NUM_STAGES_TO_MERGE, filtration=FILTRATION,
+                                                     bs_thresholds=THRESHOLDS_DATA,
+                                                     bs_thresholds_grid=THRESHOLDS_GRID_DATA)
         if not CONSENSUS:
             viz_opt_curves(stats, METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000),
                            EXPERIMENT_PATH, df_conc, RESOLUTION, stage=STAGE_NAME)
         else:
             for STAGE in [x.strip() for x in STAGE_NAME.split(',')]:
                 viz_opt_curves(stats[STAGE], METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000),
-                               EXPERIMENT_PATH, df_conc[df_conc.stage == STAGE], RESOLUTION, stage=STAGE)
+                               EXPERIMENT_PATH, df_conc, RESOLUTION, stage=STAGE)
         viz_tads(EXPERIMENT_PATH, df_conc, DATASETS, CHROMNAMES, VIZ_TAD_STAGE, RESOLUTION, method=None,
                  is_insulation=True, clusters=False, colors=None, percentile=99.9, vbc=VIZ_BIN_COUNT, consensus=CONSENSUS)
     else:

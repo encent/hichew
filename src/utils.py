@@ -71,7 +71,7 @@ def calc_mean_tad_size(boundaries, filters, ch, mis, mts, wind, resolution):
     return mean_tad, sum_cov, mean_ins, mean_bsc, full_ins, full_bsc
 
 
-def produce_boundaries_segmentation(clr, mtx, filters, window, ch, method, resolution=5000, k=3, final=False):
+def produce_boundaries_segmentation(clr, mtx, filters, window, ch, method, resolution=5000, k=3, final=False, bsg=.0):
     """
     Function produces single segmentation (TADs boundaries calling) of mtx with one window with the algorithm provided.
     :param clr: cooler file which corresponds to single stage of development (by which we search segmentation).
@@ -93,30 +93,9 @@ def produce_boundaries_segmentation(clr, mtx, filters, window, ch, method, resol
     boundaries.index = list(range(boundaries.shape[0]))
     boundaries_coords = np.asarray(boundaries[['start', 'end']])
 
-    metric_values = np.array([calc_noisy_metric(x, filters, ch, method, resolution, k) for x in boundaries_coords])
-    thresh = 0
+    mask = (boundaries['boundary_strength_{}'.format(int(window))] > boundaries['boundary_strength_{}'.format(int(window))].quantile(bsg))
 
-    # hist_arr = np.array(sorted(metric_values))
-    # hist_arr = hist_arr[hist_arr > 0]
-
-    # try:
-    #     noise_freq = np.sum(filters[ch][:, 1] - filters[ch][:, 0]) / (mtx.shape[0] * resolution)
-    #     if final: logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| Noise frequency for {} opt window: {}'.format(int(window),
-    #                                                                                                      noise_freq))
-    #     thresh = (hist_arr[:int(len(hist_arr) * noise_freq)][-1] + hist_arr[int(len(hist_arr) * noise_freq)]) / 2
-    #     if final: logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| For {} opt window delete {} boundaries out of {}.'.format(
-    #         int(window), boundaries_coords.shape[0] - boundaries_coords[metric_values > thresh].shape[0],
-    #         boundaries_coords.shape[0]))
-    #     return boundaries_coords[metric_values > thresh], boundaries[metric_values > thresh]
-    # except Exception as e:
-    #     return boundaries_coords, boundaries
-
-    if final:
-        logging.info('PRODUCE_BOUNDARIES_SEGMENTATION| For {} opt window delete {} boundaries out of {}.'.format(
-             int(window), boundaries_coords.shape[0] - boundaries_coords[metric_values > thresh].shape[0],
-             boundaries_coords.shape[0]))
-
-    return boundaries_coords[metric_values > thresh], boundaries[metric_values > thresh]
+    return boundaries_coords[mask], boundaries[mask]
 
 
 def produce_tads_segmentation(mtx, filters, gamma, ch, good_bins='default', method='armatus', max_intertad_size=3,

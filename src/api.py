@@ -117,7 +117,8 @@ def load_cool_files(coolfiles_path, chromnames, resolution, stage_names=None):
 
 
 def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, method, resolution, expected=120000,
-                      exp='3-4h', percentile=99.9, eps=0.05, window_eps=5, k=3):
+                      exp='3-4h', percentile=99.9, eps=0.05, window_eps=5, k=3, filtration='auto', bs_thresholds=None,
+                      bs_thresholds_grid=None):
     """
     Function to search optimal window for each chromosome. This function only for use in case of method='insulation'!
     :param datasets: python dictionary with loaded chromosomes and stages.
@@ -142,9 +143,16 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
     window values in given range, dataframe with segmentation for optimal window values and dictionary with stats for
     each chromosome.
     """
-    df = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength'])
+    df = pd.DataFrame(columns=['bgn', 'end', 'bs_threshold', 'window', 'ch', 'insulation_score', 'boundary_strength'])
     opt_windows = {}
     stats = {x: {} for x in chrms}
+
+    if filtration == 'auto':
+        bs_grid = bs_thresholds_grid
+    elif filtration == 'custom':
+        bs_grid = [bs_thresholds_grid[exp]]
+    else:
+        bs_grid = [.0]
 
     logging.info("SEARCH_OPT_WINDOW| Start search optimal segmentation...")
     time_start = time.time()
@@ -161,112 +169,144 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
                      "TADs (according to expected TAD size)".format(ch, all_bins_cnt, good_bins_cnt, tads_expected_cnt))
         logging.info("SEARCH_OPT_WINDOW| Run TAD boundaries search using windows grid for chrm {}...".format(ch))
 
-        boundaries_coords_0, boundaries_0 = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, grid[0], ch,
-                                                                            method, resolution, k, final=False)
-        mean_tad_size_prev, sum_cov_prev, mean_ins_prev, mean_bsc_prev, full_ins_prev, full_bsc_prev = \
-            calc_mean_tad_size(boundaries_0, filters, ch, mis, mts, grid[0], resolution)
+        df_bsc = pd.DataFrame(
+            columns=['bgn', 'end', 'bs_threshold', 'window', 'ch', 'insulation_score', 'boundary_strength'])
+        opt_windows_bsc = {}  # key: bs_threshold, value: opt window
+        stats_bsc = {x: {} for x in bs_grid}  # key: bs_threshold, value: stats for each window
 
-        window_prev = grid[0]
+        # loop for boundary strength param
+        for bsg in bs_grid:
+            logging.info("SEARCH_OPT_WINDOW| Run TAD boundaries search for boundary strength threshold {}...".format(bsg))
+            boundaries_coords_0, boundaries_0 = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, grid[0],
+                                                                                ch,
+                                                                                method, resolution, k, final=False,
+                                                                                bsg=bsg)
+            mean_tad_size_prev, sum_cov_prev, mean_ins_prev, mean_bsc_prev, full_ins_prev, full_bsc_prev = \
+                calc_mean_tad_size(boundaries_0, filters, ch, mis, mts, grid[0], resolution)
 
-        f_ins_prev = full_ins_prev
-        f_bsc_prev = full_bsc_prev
+            window_prev = grid[0]
 
-        ins_prev = mean_ins_prev
-        bsc_prev = mean_bsc_prev
-        cov_prev = sum_cov_prev
-        bound_count_prev = len(boundaries_coords_0)
+            f_ins_prev = full_ins_prev
+            f_bsc_prev = full_bsc_prev
 
-        stats[ch][grid[0]] = (mean_tad_size_prev, cov_prev, bound_count_prev, ins_prev, bsc_prev)
+            ins_prev = mean_ins_prev
+            bsc_prev = mean_bsc_prev
+            cov_prev = sum_cov_prev
+            bound_count_prev = len(boundaries_coords_0)
 
-        df_tmp = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength'],
-                              index=np.arange(len(boundaries_coords_0)))
-        df_tmp.loc[:, ['bgn', 'end']] = boundaries_coords_0
-        df_tmp['window'] = grid[0]
-        df_tmp['ch'] = ch
-        df_tmp.loc[:, 'insulation_score'] = f_ins_prev
-        df_tmp.loc[:, 'boundary_strength'] = f_bsc_prev
-        df = pd.concat([df, df_tmp])
+            stats_bsc[bsg][grid[0]] = (mean_tad_size_prev, cov_prev, bound_count_prev, ins_prev, bsc_prev)
 
-        local_optimas = {}
-        mean_tad_sizes = []
-        covs = []
-        mean_tad_sizes.append(mean_tad_size_prev)
-        covs.append(cov_prev)
-        ins = []
-        ins.append(ins_prev)
-        bsc = []
-        bsc.append(bsc_prev)
-        bounds_cnt = []
-        bounds_cnt.append(bound_count_prev)
-
-        is_exp_tad_cnt_reached = False
-        is_exp_tad_size_reached = False
-
-        for window in grid[1:]:
-            boundaries_coords, boundaries = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, window, ch,
-                                                                            method, resolution, k, final=False)
-            mean_tad_size, sum_cov, mean_ins, mean_bsc, full_ins, full_bsc = calc_mean_tad_size(boundaries, filters, ch, mis, mts, window, resolution)
-
-            mean_tad_sizes.append(mean_tad_size)
-            cov = sum_cov
-            covs.append(cov)
-            ins.append(mean_ins)
-            bsc.append(mean_bsc)
-            bound_count = len(boundaries_coords)
-            bounds_cnt.append(bound_count)
-
-            stats[ch][window] = (mean_tad_size, cov, bound_count, mean_ins, mean_bsc)
-
-            df_tmp = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength'],
-                                  index=np.arange(len(boundaries_coords)))
-            df_tmp.loc[:, ['bgn', 'end']] = boundaries_coords
-            df_tmp['window'] = window
+            df_tmp = pd.DataFrame(columns=['bgn', 'end', 'bs_threshold', 'window', 'ch', 'insulation_score',
+                                           'boundary_strength'], index=np.arange(len(boundaries_coords_0)))
+            df_tmp.loc[:, ['bgn', 'end']] = boundaries_coords_0
+            df_tmp['bs_threshold'] = bsg
+            df_tmp['window'] = grid[0]
             df_tmp['ch'] = ch
-            df_tmp.loc[:, 'insulation_score'] = full_ins
-            df_tmp.loc[:, 'boundary_strength'] = full_bsc
-            df = pd.concat([df, df_tmp])
-            if (mean_tad_size - expected / resolution) * (mean_tad_size_prev - expected / resolution) <= 0:
-                is_exp_tad_size_reached = True
-                if abs(mean_tad_size - expected / resolution) <= abs(mean_tad_size_prev - expected / resolution):
-                    local_optimas[window] = cov
-                else:
-                    local_optimas[window_prev] = cov_prev
+            df_tmp.loc[:, 'insulation_score'] = f_ins_prev
+            df_tmp.loc[:, 'boundary_strength'] = f_bsc_prev
+            df_bsc = pd.concat([df_bsc, df_tmp])
 
-            if (bound_count_prev - tads_expected_cnt) * (bound_count - tads_expected_cnt) <= 0:
-                is_exp_tad_cnt_reached = True
+            local_optimas = {}
+            mean_tad_sizes = []
+            covs = []
+            mean_tad_sizes.append(mean_tad_size_prev)
+            covs.append(cov_prev)
+            ins = []
+            ins.append(ins_prev)
+            bsc = []
+            bsc.append(bsc_prev)
+            bounds_cnt = []
+            bounds_cnt.append(bound_count_prev)
 
-            if is_exp_tad_size_reached and is_exp_tad_cnt_reached and len(
-                    [x for x in bounds_cnt if str(x) != 'nan']) >= window_eps:
-                window_cnts = np.asarray([x for x in bounds_cnt if str(x) != 'nan'][-window_eps:])
-                window_cnts = abs(window_cnts - tads_expected_cnt)
-                # add "and window > 150000" in the end of below if-condition if you want to limit output to the certain
-                # window value:
-                if np.mean(abs(window_cnts[:-1] - window_cnts[-1]) / window_cnts[-1]) < eps:
-                    break
+            is_exp_tad_cnt_reached = False
+            is_exp_tad_size_reached = False
 
-            window_prev = window
-            cov_prev = cov
-            mean_tad_size_prev = mean_tad_size
-            bound_count_prev = bound_count
+            for window in grid[1:]:
+                boundaries_coords, boundaries = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, window,
+                                                                                ch,
+                                                                                method, resolution, k, final=False,
+                                                                                bsg=bsg)
+                mean_tad_size, sum_cov, mean_ins, mean_bsc, full_ins, full_bsc = calc_mean_tad_size(boundaries, filters,
+                                                                                                    ch, mis, mts,
+                                                                                                    window, resolution)
 
-        local_optimas[grid[np.argmin([abs(x - expected / resolution) for x in mean_tad_sizes])]] = covs[
-            np.argmin([abs(x - expected / resolution) for x in mean_tad_sizes])]
-        opt_window = max(local_optimas.items(), key=operator.itemgetter(1))[0]
-        opt_windows[ch] = opt_window
+                mean_tad_sizes.append(mean_tad_size)
+                cov = sum_cov
+                covs.append(cov)
+                ins.append(mean_ins)
+                bsc.append(mean_bsc)
+                bound_count = len(boundaries_coords)
+                bounds_cnt.append(bound_count)
 
-        logging.info("SEARCH_OPT_WINDOW| Found optimal window for chrm {}: {}".format(ch, opt_window))
-        _, _ = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, opt_window, ch, method, resolution, k,
-                                               final=True)
+                stats_bsc[bsg][window] = (mean_tad_size, cov, bound_count, mean_ins, mean_bsc)
+
+                df_tmp = pd.DataFrame(columns=['bgn', 'end', 'bs_threshold', 'window', 'ch', 'insulation_score',
+                                               'boundary_strength'], index=np.arange(len(boundaries_coords)))
+                df_tmp.loc[:, ['bgn', 'end']] = boundaries_coords
+                df_tmp['window'] = window
+                df_tmp['bs_threshold'] = bsg
+                df_tmp['ch'] = ch
+                df_tmp.loc[:, 'insulation_score'] = full_ins
+                df_tmp.loc[:, 'boundary_strength'] = full_bsc
+                df_bsc = pd.concat([df_bsc, df_tmp])
+
+                if (mean_tad_size - expected / resolution) * (mean_tad_size_prev - expected / resolution) <= 0:
+                    is_exp_tad_size_reached = True
+                    if abs(mean_tad_size - expected / resolution) <= abs(mean_tad_size_prev - expected / resolution):
+                        local_optimas[window] = cov
+                    else:
+                        local_optimas[window_prev] = cov_prev
+
+                if (bound_count_prev - tads_expected_cnt) * (bound_count - tads_expected_cnt) <= 0:
+                    is_exp_tad_cnt_reached = True
+
+                if is_exp_tad_size_reached and is_exp_tad_cnt_reached and len(
+                        [x for x in bounds_cnt if str(x) != 'nan']) >= window_eps:
+                    window_cnts = np.asarray([x for x in bounds_cnt if str(x) != 'nan'][-window_eps:])
+                    window_cnts = abs(window_cnts - tads_expected_cnt)
+                    # add "and window > 150000" in the end of below if-condition if you want to limit output to the certain
+                    # window value:
+                    if np.mean(abs(window_cnts[:-1] - window_cnts[-1]) / window_cnts[-1]) < eps:
+                        break
+
+                window_prev = window
+                cov_prev = cov
+                mean_tad_size_prev = mean_tad_size
+                bound_count_prev = bound_count
+
+            local_optimas[grid[np.argmin([abs(x - expected / resolution) for x in mean_tad_sizes])]] = covs[
+                np.argmin([abs(x - expected / resolution) for x in mean_tad_sizes])]
+            opt_window = max(local_optimas.items(), key=operator.itemgetter(1))[0]
+            opt_windows_bsc[bsg] = opt_window
+
+            logging.info("SEARCH_OPT_WINDOW| Found optimal window for chrm {} and boundary strength threshold {}: {}".format(ch, bsg, opt_window))
+            _, _ = produce_boundaries_segmentation(cool_sets[exp], mtx, filters, opt_window, ch, method, resolution, k,
+                                                   final=True, bsg=bsg)
+            logging.info("SEARCH_OPT_WINDOW| End boundary strength threshold {}".format(bsg))
+
+        bsc_list = []
+        for bsg in bs_grid:
+            bsc_list.append(stats_bsc[bsg][opt_windows_bsc[bsg]][-1])
+        best_boundary_strength_threshold = bs_grid[np.argmax(bsc_list)]
+        best_window = opt_windows_bsc[best_boundary_strength_threshold]
+        stats[ch] = stats_bsc[best_boundary_strength_threshold]
+        opt_windows[ch] = best_window
+
+        sub_df = df_bsc[df_bsc.bs_threshold == best_boundary_strength_threshold]
+        sub_df.index = list(range(sub_df.shape[0]))
+        df = pd.concat([df, sub_df])
+
         logging.info("SEARCH_OPT_WINDOW| End chromosome {}".format(ch))
 
     df.loc[:, 'window'] = df.window.values.astype(int)
+    df.loc[:, 'bs_threshold'] = df.bs_threshold.values.astype(float)
     df.loc[:, 'bgn'] = df.bgn.values.astype(int)
     df.loc[:, 'end'] = df.end.values.astype(int)
     df.loc[:, 'insulation_score'] = df.insulation_score.values.astype(float)
     df.loc[:, 'boundary_strength'] = df.boundary_strength.values.astype(float)
     df.reset_index(drop=True, inplace=True)
 
-    df_opt = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength'])
+    df_opt = pd.DataFrame(columns=['bgn', 'end', 'bs_threshold', 'window', 'ch', 'insulation_score', 'boundary_strength'])
     for ch in chrms:
         df_opt = pd.concat([df_opt, df[(df['ch'] == ch) & (df['window'] == opt_windows[ch])]])
     df_opt.reset_index(drop=True, inplace=True)
@@ -358,7 +398,8 @@ def search_opt_gamma(datasets, experiment_path, method, grid, mis, mts, start_st
 
 
 def run_consensus(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, method, resolution, expected=120000,
-                      exp='nuclear_cycle_14, 3-4h', percentile=99.9, eps=0.05, window_eps=5, merge_boundaries=False, k=3, loc_size=2, N=4):
+                      exp='nuclear_cycle_14, 3-4h', percentile=99.9, eps=0.05, window_eps=5, merge_boundaries=False,
+                  k=3, loc_size=2, N=4, filtration='auto', bs_thresholds=None, bs_thresholds_grid=None):
     """
     Function to search consensus set of boundaries ampng given set of stages (indicated in exp parameter)
     :param datasets: python dictionary with loaded chromosomes and stages.
@@ -383,8 +424,8 @@ def run_consensus(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, m
     gamma values in given range, dataframe with segmentation for optimal gamma values.
     """
     stages = [x.strip() for x in exp.split(',')]
-    df_all = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength', 'stage'])
-    df_opt_all = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength', 'stage'])
+    df_all = pd.DataFrame(columns=['bgn', 'end', 'bs_threshold', 'window', 'ch', 'insulation_score', 'boundary_strength', 'stage'])
+    df_opt_all = pd.DataFrame(columns=['bgn', 'end', 'bs_threshold', 'window', 'ch', 'insulation_score', 'boundary_strength', 'stage'])
     stats_all = dict.fromkeys(stages, None)
     opws_all = dict.fromkeys(stages, None)
 
@@ -394,7 +435,8 @@ def run_consensus(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, m
         logging.info("RUN_CONSENSUS| Start stage {}".format(stage))
         df, df_conc, stats, opws = search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrms,
                                                      method, resolution, expected, stage, percentile, eps,
-                                                     window_eps, k)
+                                                     window_eps, k, filtration=filtration, bs_thresholds=bs_thresholds,
+                                                     bs_thresholds_grid=bs_thresholds_grid)
         df['stage'] = stage
         df_conc['stage'] = stage
         df_all = pd.concat([df_all, df], ignore_index=True)
@@ -427,7 +469,8 @@ def run_consensus(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, m
     logging.info("RUN_CONSENSUS| After filtering we have {} consensus boundaries in total".format(df_opt_all.shape[0]))
     logging.info("RUN_CONSENSUS| End filtering consensus boundaries...")
 
-    # merge boundaries
+    # merge boundaries ("only strongest left alive" approach)
+    """
     new_consensus = pd.DataFrame()
     if merge_boundaries:
         logging.info("RUN_CONSENSUS| Start merging boundaries...")
@@ -450,6 +493,130 @@ def run_consensus(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, m
         logging.info(
             "RUN_CONSENSUS| After merging we have {} consensus boundaries in total".format(new_consensus.shape[0]))
         logging.info("RUN_CONSENSUS| End merging boundaries...")
+    """
+    # merge boundaries ("shifting the links" approach)
+    new_consensus = pd.DataFrame(columns=['bgn', 'end', 'window', 'ch', 'insulation_score', 'boundary_strength', 'stage'])
+    if merge_boundaries:
+        logging.info("RUN_CONSENSUS| Start merging boundaries...")
+        logging.info(
+            "RUN_CONSENSUS| Before merging we have {} consensus boundaries in total".format(df_opt_all.shape[0]))
+
+        chrom_sizes = {x: 0 for x in chrms}
+
+        for ch in chrms:
+            sizes = []
+            for stage in stages:
+                sizes.append(datasets[stage][ch].shape[0])
+            chrom_sizes[ch] = max(sizes)
+
+        for ch in chrms:
+            boundary_links_forward = [[] for i in range(chrom_sizes[ch])]
+            boundary_links_backward = [[] for i in range(chrom_sizes[ch])]
+            for i in range(len(boundary_links_forward)):
+                index_df = df_opt_all[(df_opt_all.bgn == i * resolution) & (df_opt_all.ch == ch)].index
+                if len(index_df) == 0:
+                    boundary_links_forward[i] = [[], 0.0, 0.0]
+                    boundary_links_backward[i] = [[], 0.0, 0.0]
+                else:
+                    sub_df = df_opt_all.loc[index_df]
+                    boundary_links_forward[i] = [list(index_df),
+                                         float(sub_df[sub_df['boundary_strength'] == sub_df['boundary_strength'].max()]['insulation_score']),
+                                         sub_df['boundary_strength'].max()]
+                    boundary_links_backward[i] = [list(index_df),
+                                         float(sub_df[sub_df['boundary_strength'] == sub_df['boundary_strength'].max()]['insulation_score']),
+                                         sub_df['boundary_strength'].max()]
+            # forward:
+            for i in range(len(boundary_links_forward) - 1):
+                if (len(boundary_links_forward[i][0]) == 0 and len(boundary_links_forward[i + 1][0]) == 0) or \
+                    (len(boundary_links_forward[i][0]) == 0 and len(boundary_links_forward[i + 1][0]) != 0) or \
+                        (len(boundary_links_forward[i][0]) != 0 and len(boundary_links_forward[i + 1][0]) == 0):
+                    continue
+                else:
+                    if len(set(df_opt_all.loc[boundary_links_forward[i][0]]['stage']).intersection(df_opt_all.loc[boundary_links_forward[i + 1][0]]['stage'])) == 0:
+                        if boundary_links_forward[i][2] >= boundary_links_forward[i + 1][2]:
+                            boundary_links_forward[i][0] += boundary_links_forward[i + 1][0]
+                            boundary_links_forward[i + 1][0] = []
+                            boundary_links_forward[i + 1][1] = 0.0
+                            boundary_links_forward[i + 1][2] = 0.0
+                        else:
+                            boundary_links_forward[i + 1][0] += boundary_links_forward[i][0]
+                            boundary_links_forward[i][0] = []
+                            boundary_links_forward[i][1] = 0.0
+                            boundary_links_forward[i][2] = 0.0
+                    else:
+                        continue
+            # backward:
+            for i in range(len(boundary_links_backward) - 1, 0, -1):
+                if (len(boundary_links_backward[i][0]) == 0 and len(boundary_links_backward[i - 1][0]) == 0) or \
+                    (len(boundary_links_backward[i][0]) == 0 and len(boundary_links_backward[i - 1][0]) != 0) or \
+                        (len(boundary_links_backward[i][0]) != 0 and len(boundary_links_backward[i - 1][0]) == 0):
+                    continue
+                else:
+                    if len(set(df_opt_all.loc[boundary_links_backward[i][0]]['stage']).intersection(df_opt_all.loc[boundary_links_backward[i - 1][0]]['stage'])) == 0:
+                        if boundary_links_backward[i][2] >= boundary_links_backward[i - 1][2]:
+                            boundary_links_backward[i][0] += boundary_links_backward[i - 1][0]
+                            boundary_links_backward[i - 1][0] = []
+                            boundary_links_backward[i - 1][1] = 0.0
+                            boundary_links_backward[i - 1][2] = 0.0
+                        else:
+                            boundary_links_backward[i - 1][0] += boundary_links_backward[i][0]
+                            boundary_links_backward[i][0] = []
+                            boundary_links_backward[i][1] = 0.0
+                            boundary_links_backward[i][2] = 0.0
+                    else:
+                        continue
+
+            # merge forward and backward:
+            boundary_links_forward = np.asarray(boundary_links_forward)
+            boundary_links_backward = np.asarray(boundary_links_backward)
+            for i in list(df_opt_all[df_opt_all.ch == ch].index):
+                forward_mask = list(map(lambda x: True if i in x[0] else False, boundary_links_forward))
+                backward_mask = list(map(lambda x: True if i in x[0] else False, boundary_links_backward))
+                if forward_mask == backward_mask:
+                    continue
+                else:
+                    set_intersection = set(boundary_links_forward[forward_mask][0][0]).intersection(boundary_links_backward[backward_mask][0][0])
+                    if len(set_intersection) == 1:
+                        if boundary_links_forward[forward_mask][0][2] >= boundary_links_backward[backward_mask][0][2]:
+                            boundary_links_forward[np.where(np.asarray(forward_mask) == True)[0][0]][0] += \
+                                boundary_links_forward[np.where(np.asarray(backward_mask) == True)[0][0]][0]
+                            boundary_links_backward[np.where(np.asarray(forward_mask) == True)[0][0]][0] += \
+                                boundary_links_backward[np.where(np.asarray(backward_mask) == True)[0][0]][0]
+                            boundary_links_forward[np.where(np.asarray(backward_mask) == True)[0][0]][0] = []
+                            boundary_links_forward[np.where(np.asarray(backward_mask) == True)[0][0]][1] = 0.0
+                            boundary_links_forward[np.where(np.asarray(backward_mask) == True)[0][0]][2] = 0.0
+                            boundary_links_backward[np.where(np.asarray(backward_mask) == True)[0][0]][0] = []
+                            boundary_links_backward[np.where(np.asarray(backward_mask) == True)[0][0]][1] = 0.0
+                            boundary_links_backward[np.where(np.asarray(backward_mask) == True)[0][0]][2] = 0.0
+                        else:
+                            boundary_links_forward[np.where(np.asarray(backward_mask) == True)[0][0]][0] += \
+                                boundary_links_forward[np.where(np.asarray(forward_mask) == True)[0][0]][0]
+                            boundary_links_forward[np.where(np.asarray(backward_mask) == True)[0][0]][1] = \
+                                boundary_links_backward[backward_mask][0][1]
+                            boundary_links_forward[np.where(np.asarray(backward_mask) == True)[0][0]][2] = \
+                                boundary_links_backward[backward_mask][0][2]
+                            boundary_links_backward[np.where(np.asarray(backward_mask) == True)[0][0]][0] += \
+                                boundary_links_backward[np.where(np.asarray(forward_mask) == True)[0][0]][0]
+                            boundary_links_forward[np.where(np.asarray(forward_mask) == True)[0][0]][0] = []
+                            boundary_links_forward[np.where(np.asarray(forward_mask) == True)[0][0]][1] = 0.0
+                            boundary_links_forward[np.where(np.asarray(forward_mask) == True)[0][0]][2] = 0.0
+                            boundary_links_backward[np.where(np.asarray(forward_mask) == True)[0][0]][0] = []
+                            boundary_links_backward[np.where(np.asarray(forward_mask) == True)[0][0]][1] = 0.0
+                            boundary_links_backward[np.where(np.asarray(forward_mask) == True)[0][0]][2] = 0.0
+                    else:
+                        continue
+
+            # write consensus boundaries from boundary_links_forward to new_consensus dataframe
+            for i in range(len(boundary_links_forward)):
+                if len(boundary_links_forward[i][0]) != 0:
+                    list_of_stages = ', '.join(list(df_opt_all.loc[boundary_links_forward[i][0]]['stage']))
+                    boundary_score_bnd = boundary_links_forward[i][2]
+                    insulation_score_bnd = boundary_links_forward[i][1]
+                    sub_df_bnd = pd.DataFrame({'bgn': [i * resolution], 'end': [(i + 1) * resolution],
+                                               'window': [df_opt_all[df_opt_all.ch == ch].iloc[0]['window']],
+                                               'ch': [ch], 'insulation_score': [insulation_score_bnd],
+                                               'boundary_strength': [boundary_score_bnd], 'stage': [list_of_stages]})
+                    new_consensus = pd.concat([new_consensus, sub_df_bnd], ignore_index=True)
 
     df_all.to_csv(join(experiment_path, "consensus_all_tads_{0}_{1}kb_{2}kb.csv".format(method, int(expected / 1000),
                                                                           int(resolution / 1000))), sep='\t')
