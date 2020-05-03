@@ -6,6 +6,8 @@ import operator
 import warnings
 from os import listdir, makedirs
 from os.path import basename, join, isdir, splitext, dirname
+import random
+import json
 
 import cooler
 import cooltools
@@ -285,9 +287,39 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
             logging.info("SEARCH_OPT_WINDOW| End boundary strength threshold {}".format(bsg))
 
         bsc_list = []
+        mts_list = []
         for bsg in bs_grid:
             bsc_list.append(stats_bsc[bsg][opt_windows_bsc[bsg]][-1])
-        best_boundary_strength_threshold = bs_grid[np.argmax(bsc_list)]
+            # print(stats_bsc[bsg][opt_windows_bsc[bsg]][0])
+            mts_list.append(abs(stats_bsc[bsg][opt_windows_bsc[bsg]][0] - expected / resolution))
+        bsc_list, mts_list, bs_grid_new = zip(*sorted(zip(bsc_list, mts_list, bs_grid), reverse=True))
+        bsc_list = list(bsc_list)
+        mts_list = list(mts_list)
+        bs_grid_new = list(bs_grid_new)
+
+        # print(mts_list)
+        # print(bsc_list)
+        # print(bs_grid_new)
+
+        for i in range(1, len(mts_list) - 1):
+            if mts_list[i] < mts_list[i - 1] and mts_list[i] < mts_list[i + 1]:
+                if mts_list[i] < 1:  # Now less than 1 bin of Hi-C map -- should be adjusted in order to depend on expected TAD size)
+                    best_index = i
+                    break
+
+        # best_index = np.argmin(mts_list)
+        best_boundary_strength_threshold = bs_grid_new[best_index]
+
+        if best_boundary_strength_threshold < 0.2:
+            logging.warning('SEARCH_OPT_WINDOW| WARNING! Your expected TAD size parameter value is probably too low! '
+                            'The subsequent borders annotation might be incorrect! Please, choose another one (higher)')
+        elif best_boundary_strength_threshold >= 0.8:
+            logging.warning('SEARCH_OPT_WINDOW| WARNING! Your expected TAD size parameter value is probably too high! '
+                            'The subsequent borders annotation might be incorrect! Please, choose another one (lower)')
+
+        logging.info('SEARCH_OPT_WINDOW| For stage {} for chrom {} boundary strength percentile is {}'.format(exp, ch,
+                                                                                                              best_boundary_strength_threshold))
+        # best_boundary_strength_threshold = bs_grid[np.argmax(bsc_list)]
         best_window = opt_windows_bsc[best_boundary_strength_threshold]
         stats[ch] = stats_bsc[best_boundary_strength_threshold]
         opt_windows[ch] = best_window
@@ -760,18 +792,25 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
     Value vbc=1000 means that we split our chromosome into 1000-bins-sized regions and vizualize each of them.
     :return: nothing.
     """
+    with open('../colors.json', 'r') as f:
+        color_dict = json.load(f)
     for ch in chromnames:
         mtx_size = datasets[exp][ch].shape[0]
         begin_arr = list(np.arange(0, mtx_size, vbc))
         end_arr = begin_arr[1:]; end_arr.append(mtx_size)
         for begin, end in zip(begin_arr, end_arr):
             df_tmp = df.query("ch=='{}'".format(ch))
+            if consensus:
+                stage_mask = list(map(lambda x: True if ',' not in x else False, list(df_tmp['stage'])))
             segments = df_tmp[['bgn', 'end']].values
-            if consensus == True:
+            if consensus is True and sum(stage_mask) == len(stage_mask):
                 boundaries_stages = list(df_tmp['stage'])
                 list_of_stages = list(set(list(df_tmp['stage'])))
                 dict_of_stages = dict(zip(list_of_stages, list(range(len(list_of_stages)))))
-                colors_consensus = sns.color_palette('rainbow', len(list_of_stages))
+                colors_consensus = sns.xkcd_palette(random.sample(list(color_dict.values()), len(list_of_stages)))
+                hexes = colors_consensus.as_hex()
+                logging.info("Stages color encoding for visualization: {}".format(str([(list_of_stages[i], color_dict[hex_]) for i, hex_ in enumerate(hexes)])))
+                # colors_consensus = sns.color_palette('rainbow', len(list_of_stages))
             mtx_cor = datasets[exp][ch]
             np.fill_diagonal(mtx_cor, 0)
             plt.figure(figsize=[20, 20])
@@ -808,13 +847,20 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
                                     plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
                                              [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
                                              color='blue', linewidth=10)
-                                else:
+                                elif consensus and sum(stage_mask) == len(stage_mask):
                                     plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
                                              [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
                                              color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=10)
                                     plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
                                              [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
                                              color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=10)
+                                elif consensus and sum(stage_mask) != len(stage_mask):
+                                    plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                                             color='blue', linewidth=10)
+                                    plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                                             color='blue', linewidth=10)
                     else:
                         if seg[0] < end and seg[1] > begin:
                             plt.plot([seg[0] - begin, seg[1] - begin], [seg[0] - begin, seg[0] - begin], color='blue', linewidth=10)
