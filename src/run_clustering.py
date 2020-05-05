@@ -66,7 +66,7 @@ def run_pipeline():
                              'by which TAD clustering will be run.')
     parser.add_argument('-chr', '--chromnames', type=str, default='X,2L,2R,3L,3R',
                         help='List of chromosomes of interest separated by comma.')
-    parser.add_argument('-pcnt', '--percentile', type=float, default=99.9,
+    parser.add_argument('-pcnt', '--percentile', type=float, default=99.99,
                         help='Percentile for cooler and Hi-C visualization.')
     parser.add_argument('-vbc', '--viz_bin_count', type=int, default=1000,
                         help='Number of bins to vizualize on a single Hi-C map.')

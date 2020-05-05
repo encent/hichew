@@ -6,6 +6,7 @@ import operator
 import warnings
 from os import listdir, makedirs
 from os.path import basename, join, isdir, splitext, dirname
+from collections import OrderedDict
 import random
 import json
 
@@ -794,23 +795,32 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
     """
     with open('../colors.json', 'r') as f:
         color_dict = json.load(f)
+
+    if consensus:
+        stage_mask = list(map(lambda x: True if ',' not in x else False, list(df['stage'])))
+        if sum(stage_mask) == len(stage_mask):
+            boundaries_stages = list(df['stage'])
+            list_of_stages = list(set(list(df['stage'])))
+            dict_of_stages = dict(zip(list_of_stages, list(range(len(list_of_stages)))))
+            colors_consensus = sns.xkcd_palette(random.sample(list(color_dict.values()), len(list_of_stages)))
+            hexes = colors_consensus.as_hex()
+            logging.info("Stages color encoding for visualization: {}".format(
+                str([(list_of_stages[i], color_dict[hex_]) for i, hex_ in enumerate(hexes)])))
+
     for ch in chromnames:
         mtx_size = datasets[exp][ch].shape[0]
         begin_arr = list(np.arange(0, mtx_size, vbc))
         end_arr = begin_arr[1:]; end_arr.append(mtx_size)
         for begin, end in zip(begin_arr, end_arr):
             df_tmp = df.query("ch=='{}'".format(ch))
-            if consensus:
-                stage_mask = list(map(lambda x: True if ',' not in x else False, list(df_tmp['stage'])))
+            # if consensus:
+            #     stage_mask = list(map(lambda x: True if ',' not in x else False, list(df_tmp['stage'])))
             segments = df_tmp[['bgn', 'end']].values
-            if consensus is True and sum(stage_mask) == len(stage_mask):
-                boundaries_stages = list(df_tmp['stage'])
-                list_of_stages = list(set(list(df_tmp['stage'])))
-                dict_of_stages = dict(zip(list_of_stages, list(range(len(list_of_stages)))))
-                colors_consensus = sns.xkcd_palette(random.sample(list(color_dict.values()), len(list_of_stages)))
-                hexes = colors_consensus.as_hex()
-                logging.info("Stages color encoding for visualization: {}".format(str([(list_of_stages[i], color_dict[hex_]) for i, hex_ in enumerate(hexes)])))
-                # colors_consensus = sns.color_palette('rainbow', len(list_of_stages))
+            # if consensus is True and sum(stage_mask) == len(stage_mask):
+            #     boundaries_stages = list(df_tmp['stage'])
+            #     list_of_stages = list(set(list(df_tmp['stage'])))
+            #     dict_of_stages = dict(zip(list_of_stages, list(range(len(list_of_stages)))))
+            #     colors_consensus = sns.color_palette('rainbow', len(list_of_stages))
             mtx_cor = datasets[exp][ch]
             np.fill_diagonal(mtx_cor, 0)
             plt.figure(figsize=[20, 20])
@@ -824,48 +834,100 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
                 for l, seg in zip(df_tmp[clusters_name].values, segments):
                     if is_insulation:
                         if int(seg[0] / resolution) < end and int(seg[1] / resolution) > begin:
-                            for i in range(8):
+                            for i in range(1):
                                 plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
                                          [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
-                                         color=colors[l], linewidth=10)
+                                         color=colors[l], linewidth=7, label=str(l))
                                 plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
                                          [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
-                                         color=colors[l], linewidth=10)
+                                         color=colors[l], linewidth=7, label=str(l))
+                                plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                         [int(seg[0] / resolution + 1 - i) - begin, int(seg[0] / resolution + 1 - i) - begin],
+                                         color=colors[l], linewidth=7, label=str(l))
+                                plt.plot([int(seg[1] / resolution - 1 + i) - begin, int(seg[1] / resolution - 1 + i) - begin],
+                                         [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                                         color=colors[l], linewidth=7, label=str(l))
                     else:
                         if seg[0] < end and seg[1] > begin:
-                            plt.plot([seg[0] - begin, seg[1] - begin], [seg[0] - begin, seg[0] - begin], color=colors[l])
-                            plt.plot([seg[1] - begin, seg[1] - begin], [seg[0] - begin, seg[1] - begin], color=colors[l])
+                            plt.plot([seg[0] - begin, seg[1] - begin], [seg[0] - begin, seg[0] - begin],
+                                     color=colors[l], linewidth=7, label=str(l))
+                            plt.plot([seg[1] - begin, seg[1] - begin], [seg[0] - begin, seg[1] - begin],
+                                     color=colors[l], linewidth=7, label=str(l))
             else:
                 for ii, seg in enumerate(segments):
                     if is_insulation:
                         if int(seg[0] / resolution) < end and int(seg[1] / resolution) > begin:
-                            for i in range(8):
+                            for i in range(1):
                                 if not consensus:
-                                    plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                             [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
-                                             color='blue', linewidth=10)
-                                    plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                             [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
-                                             color='blue', linewidth=10)
+                                    plt.plot(
+                                        [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                                        color='blue', linewidth=7)
+                                    plt.plot(
+                                        [int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                                        color='blue', linewidth=7)
+                                    plt.plot(
+                                        [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution + 1 - i) - begin,
+                                         int(seg[0] / resolution + 1 - i) - begin],
+                                        color='blue', linewidth=7)
+                                    plt.plot([int(seg[1] / resolution - 1 + i) - begin,
+                                              int(seg[1] / resolution - 1 + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin,
+                                              int(seg[1] / resolution - i) - begin],
+                                             color='blue', linewidth=7)
                                 elif consensus and sum(stage_mask) == len(stage_mask):
-                                    plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                             [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
-                                             color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=10)
-                                    plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                             [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
-                                             color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=10)
+                                    plt.plot(
+                                        [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                                        color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=7, label=boundaries_stages[ii])
+                                    plt.plot(
+                                        [int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                                        color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=7, label=boundaries_stages[ii])
+                                    plt.plot(
+                                        [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution + 1 - i) - begin,
+                                         int(seg[0] / resolution + 1 - i) - begin],
+                                        color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=7, label=boundaries_stages[ii])
+                                    plt.plot([int(seg[1] / resolution - 1 + i) - begin,
+                                              int(seg[1] / resolution - 1 + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin,
+                                              int(seg[1] / resolution - i) - begin],
+                                             color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=7, label=boundaries_stages[ii])
                                 elif consensus and sum(stage_mask) != len(stage_mask):
-                                    plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                             [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
-                                             color='blue', linewidth=10)
-                                    plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                             [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
-                                             color='blue', linewidth=10)
+                                    plt.plot(
+                                        [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                                        color='blue', linewidth=7)
+                                    plt.plot(
+                                        [int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                                        color='blue', linewidth=7)
+                                    plt.plot(
+                                        [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
+                                        [int(seg[0] / resolution + 1 - i) - begin,
+                                         int(seg[0] / resolution + 1 - i) - begin],
+                                        color='blue', linewidth=7)
+                                    plt.plot([int(seg[1] / resolution - 1 + i) - begin,
+                                              int(seg[1] / resolution - 1 + i) - begin],
+                                             [int(seg[0] / resolution - i) - begin,
+                                              int(seg[1] / resolution - i) - begin],
+                                             color='blue', linewidth=7)
                     else:
                         if seg[0] < end and seg[1] > begin:
-                            plt.plot([seg[0] - begin, seg[1] - begin], [seg[0] - begin, seg[0] - begin], color='blue', linewidth=10)
-                            plt.plot([seg[1] - begin, seg[1] - begin], [seg[0] - begin, seg[1] - begin], color='blue', linewidth=10)
+                            plt.plot([seg[0] - begin, seg[1] - begin], [seg[0] - begin, seg[0] - begin], color='blue', linewidth=7)
+                            plt.plot([seg[1] - begin, seg[1] - begin], [seg[0] - begin, seg[1] - begin], color='blue', linewidth=7)
 
+            if clusters:
+                handles, labels = plt.gca().get_legend_handles_labels()
+                by_label = OrderedDict(zip(labels, handles))
+                plt.legend(by_label.values(), by_label.keys(), title='Clusters:', loc='upper right')
+            elif consensus and sum(stage_mask) == len(stage_mask):
+                handles, labels = plt.gca().get_legend_handles_labels()
+                by_label = OrderedDict(zip(labels, handles))
+                plt.legend(by_label.values(), by_label.keys(), title='Stages:', loc='upper right')
             plt.title(ch + '; ' + exp + '; ' + str(begin) + ':' + str(end) + '; ' + 'clustering: ' + str(clusters))
             plt.draw()
             plt.savefig(join(data_path, ch + '_' + exp + '_' + str(begin) + '_' + str(end) + '_' + 'clustering_' + str(clusters) + '.png'))
@@ -939,6 +1001,7 @@ def compute_ins_z_scores(seg_path, cool_sets, stages, chrms, ignore_diags=2):
                                                                                       ['ins_score_{}'.format(x) for x in
                                                                                        stages]].apply(
         scipy.stats.zscore, axis=1).values])
+    segmentation = segmentation.dropna(axis=0, subset=['z_ins_score_{}'.format(x) for x in stages]).reset_index(drop=True)
     time_elapsed = time.time() - in_time
     logging.info(
         "COMPUTE_INS_Z_SCORES| Complete computing insulation scores in {:.0f}m {:.0f}s".format(time_elapsed // 60,

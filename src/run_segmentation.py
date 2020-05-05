@@ -82,7 +82,7 @@ def run_pipeline():
                         help='Max intertad size (in bins). Recommended: 3 for armatus and insulation, 2 for modularity.')
     parser.add_argument('-mts', '--max_tad_size', type=int, default=1000,
                         help='Max TAD size (in bins).')
-    parser.add_argument('-pcnt', '--percentile', type=float, default=99.9,
+    parser.add_argument('-pcnt', '--percentile', type=float, default=99.99,
                         help='Percentile for cooler and Hi-C visualization.')
     parser.add_argument('-vbc', '--viz_bin_count', type=int, default=1000,
                         help='Number of bins to vizualize on a single Hi-C map.')
@@ -203,7 +203,7 @@ def run_pipeline():
                 viz_opt_curves(stats[STAGE], METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000),
                                EXPERIMENT_PATH, df_conc, RESOLUTION, stage=STAGE)
         viz_tads(EXPERIMENT_PATH, df_conc, DATASETS, CHROMNAMES, VIZ_TAD_STAGE, RESOLUTION, method=None,
-                 is_insulation=True, clusters=False, colors=None, percentile=99.9, vbc=VIZ_BIN_COUNT, consensus=CONSENSUS)
+                 is_insulation=True, clusters=False, colors=None, percentile=99.99, vbc=VIZ_BIN_COUNT, consensus=CONSENSUS)
     else:
         opgs, df, df_conc = search_opt_gamma(DATASETS, EXPERIMENT_PATH, method=METHOD,
                                              grid=np.arange(GRID[0], GRID[1], GRID[2]), mis=MAX_INTERTAD, mts=MAX_TAD_SIZE,
@@ -212,7 +212,7 @@ def run_pipeline():
         viz_opt_curves(df, METHOD, CHROMNAMES, EXPECTED_MEAN_TAD / RESOLUTION, int(EXPECTED_MEAN_TAD / 1000),
                        EXPERIMENT_PATH, df_conc, RESOLUTION, stage=STAGE_NAME)
         viz_tads(EXPERIMENT_PATH, df_conc, DATASETS, CHROMNAMES, VIZ_TAD_STAGE, RESOLUTION, method=None,
-                 is_insulation=False, clusters=False, colors=None, percentile=99.9, vbc=VIZ_BIN_COUNT, consensus=False)
+                 is_insulation=False, clusters=False, colors=None, percentile=99.99, vbc=VIZ_BIN_COUNT, consensus=False)
 
     time_elapsed = time.time() - in_time
 
