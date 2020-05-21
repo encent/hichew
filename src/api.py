@@ -691,8 +691,8 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path, opt_df,
         if method == 'insulation':
             od = collections.OrderedDict(sorted(df[ch].items()))
             gr_mean = [od[i][0] for i in od]
-            gr_cov = [od[i][1] for i in od]
-            gr_count = [od[i][2] for i in od]
+            # gr_cov = [od[i][1] for i in od]
+            # gr_count = [od[i][2] for i in od]
             gr_ins = [od[i][3] for i in od]
             gr_bsc = [od[i][4] for i in od]
             w_range = [i for i in od]
@@ -707,9 +707,6 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path, opt_df,
 
         par1 = host.twinx()
         par2 = host.twinx()
-        if method == 'insulation':
-            par3 = host.twinx()
-            par4 = host.twinx()
 
         offset = 70
         new_fixed_axis = par1.get_grid_helper().new_fixed_axis
@@ -720,40 +717,26 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path, opt_df,
         par2.axis["left"] = new_fixed_axis(loc="left", axes=par2, offset=(-offset, 0))
 
         if method == 'insulation':
-            offset = 170
-            new_fixed_axis = par3.get_grid_helper().new_fixed_axis
-            par3.axis["left"] = new_fixed_axis(loc="left",
-                                               axes=par3,
-                                               offset=(-offset, 0))
-            offset = 220
-            new_fixed_axis = par4.get_grid_helper().new_fixed_axis
-            par4.axis["left"] = new_fixed_axis(loc="left",
-                                               axes=par4,
-                                               offset=(-offset, 0))
-
-        if method == 'insulation':
             host.set_xlabel("Window")
+            host.set_ylabel("Mean TAD size")
+            par1.set_ylabel("Mean Insulation score")
+            par2.set_ylabel("Mean B-score")
         else:
             host.set_xlabel("Gamma")
-        host.set_ylabel("Mean")
-        par1.set_ylabel("Coverage")
-        par2.set_ylabel("Count")
-        if method == 'insulation':
-            par3.set_ylabel("Insulation")
-            par4.set_ylabel("Boundary strength")
+            host.set_ylabel("Mean TAD size")
+            par1.set_ylabel("Coverage")
+            par2.set_ylabel("TADs count")
 
         if method == 'insulation':
-            p1, = host.plot(w_range, gr_mean, label="{} mean".format(ch))
+            p1, = host.plot(w_range, gr_mean, label="{} mean TAD size".format(ch))
             p1, = host.plot([min(w_range), max(w_range)], [expected_mts, expected_mts], color=p1.get_color())
             p1, = host.plot(
                 [list(set(opt_df[opt_df.ch == ch]['window']))[0], list(set(opt_df[opt_df.ch == ch]['window']))[0]],
                 [0, expected_mts], color=p1.get_color(), linestyle='dashed')
-            p2, = par1.plot(w_range, gr_cov, label="{} coverage".format(ch))
-            p3, = par2.plot(w_range, gr_count, label="{} count".format(ch))
-            p4, = par3.plot(w_range, gr_ins, label="{} insulation".format(ch))
-            p5, = par4.plot(w_range, gr_bsc, label="{} boundary strength".format(ch))
+            p2, = par1.plot(w_range, gr_ins, label="{} mean insulation score".format(ch))
+            p3, = par2.plot(w_range, gr_bsc, label="{} mean B-score".format(ch))
         else:
-            p1, = host.plot(gr_mean.gamma, gr_mean.length, label="{} mean".format(ch))
+            p1, = host.plot(gr_mean.gamma, gr_mean.length, label="{} mean TAD size".format(ch))
             p1, = host.plot([min(df[df['ch'] == ch]['gamma']), max(df[df['ch'] == ch]['gamma'])], [expected_mts, expected_mts],
                             color=p1.get_color())
             p2, = par1.plot(gr_cov.gamma, gr_cov.length, label="{} coverage".format(ch))
@@ -763,16 +746,11 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path, opt_df,
         host.axis["left"].label.set_color(p1.get_color())
         par1.axis["left"].label.set_color(p2.get_color())
         par2.axis["left"].label.set_color(p3.get_color())
-        if method == 'insulation':
-            par3.axis["left"].label.set_color(p4.get_color())
-            par4.axis["left"].label.set_color(p5.get_color())
 
-        plt.title('Stage {}, Chr {}, Method: {}, expected TAD size: {} Kb, optimal window: {} / {} = {}'.format(stage,
-                ch, method, str(mts), list(set(opt_df[opt_df.ch == ch]['window']))[0], resolution,
-                list(set(opt_df[opt_df.ch == ch]['window']))[0] / resolution))
-
+        plt.title('Stage {}, Chr {}, Method: {}, expected TAD size: {} Kb, optimal window: {}'.format(stage,
+                ch, method, str(mts), list(set(opt_df[opt_df.ch == ch]['window']))[0] // resolution))
         plt.draw()
-        plt.savefig(join(data_path, stage + '_' + ch + '_' + method + '_' + str(mts) + 'Kb' + '.png'))
+        plt.savefig(join(data_path, stage + '_' + ch + '_' + method + '_' + str(mts) + 'Kb' + '.png'), bbox_inches='tight')
 
 
 def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, is_insulation=False, clusters=False, colors=None, percentile=99.9, vbc=1000, consensus=False):
@@ -878,23 +856,29 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
                                               int(seg[1] / resolution - i) - begin],
                                              color='blue', linewidth=7)
                                 elif consensus and sum(stage_mask) == len(stage_mask):
+                                    if not any([stg.startswith('3-4h') for stg in list_of_stages]):
+                                        lof_sorted = sorted(list_of_stages, reverse=True)
+                                    else:
+                                        lof_sorted = sorted(list_of_stages, reverse=True)
+                                        lof_sorted = [lof_sorted[-1]] + lof_sorted[:-1]
+                                    lof_dict = {stage_lof: i_d for i_d, stage_lof in enumerate(lof_sorted)}
                                     plt.plot(
-                                        [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                        [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                                        [int(seg[0] / resolution + lof_dict[boundaries_stages[ii]]) - begin, int(seg[1] / resolution + lof_dict[boundaries_stages[ii]]) - begin],
+                                        [int(seg[0] / resolution - lof_dict[boundaries_stages[ii]]) - begin, int(seg[0] / resolution - lof_dict[boundaries_stages[ii]]) - begin],
                                         color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=7, label=boundaries_stages[ii])
                                     plt.plot(
-                                        [int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                        [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                                        [int(seg[1] / resolution + lof_dict[boundaries_stages[ii]]) - begin, int(seg[1] / resolution + lof_dict[boundaries_stages[ii]]) - begin],
+                                        [int(seg[0] / resolution - lof_dict[boundaries_stages[ii]]) - begin, int(seg[1] / resolution - lof_dict[boundaries_stages[ii]]) - begin],
                                         color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=7, label=boundaries_stages[ii])
                                     plt.plot(
-                                        [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                        [int(seg[0] / resolution + 1 - i) - begin,
-                                         int(seg[0] / resolution + 1 - i) - begin],
+                                        [int(seg[0] / resolution + lof_dict[boundaries_stages[ii]]) - begin, int(seg[1] / resolution + lof_dict[boundaries_stages[ii]]) - begin],
+                                        [int(seg[0] / resolution + 1 - lof_dict[boundaries_stages[ii]]) - begin,
+                                         int(seg[0] / resolution + 1 - lof_dict[boundaries_stages[ii]]) - begin],
                                         color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=7, label=boundaries_stages[ii])
-                                    plt.plot([int(seg[1] / resolution - 1 + i) - begin,
-                                              int(seg[1] / resolution - 1 + i) - begin],
-                                             [int(seg[0] / resolution - i) - begin,
-                                              int(seg[1] / resolution - i) - begin],
+                                    plt.plot([int(seg[1] / resolution - 1 + lof_dict[boundaries_stages[ii]]) - begin,
+                                              int(seg[1] / resolution - 1 + lof_dict[boundaries_stages[ii]]) - begin],
+                                             [int(seg[0] / resolution - lof_dict[boundaries_stages[ii]]) - begin,
+                                              int(seg[1] / resolution - lof_dict[boundaries_stages[ii]]) - begin],
                                              color=colors_consensus[dict_of_stages[boundaries_stages[ii]]], linewidth=7, label=boundaries_stages[ii])
                                 elif consensus and sum(stage_mask) != len(stage_mask):
                                     plt.plot(
@@ -923,11 +907,14 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
             if clusters:
                 handles, labels = plt.gca().get_legend_handles_labels()
                 by_label = OrderedDict(zip(labels, handles))
-                plt.legend(by_label.values(), by_label.keys(), title='Clusters:', loc='upper right')
+                lgd = plt.legend(by_label.values(), by_label.keys(), title='Clusters:', loc='upper right', prop={'size': 25})
+                lgd.get_title().set_fontsize('25')
+
             elif consensus and sum(stage_mask) == len(stage_mask):
                 handles, labels = plt.gca().get_legend_handles_labels()
                 by_label = OrderedDict(zip(labels, handles))
-                plt.legend(by_label.values(), by_label.keys(), title='Stages:', loc='upper right')
+                lgd = plt.legend(by_label.values(), by_label.keys(), title='Stages:', loc='upper right', prop={'size': 25})
+                lgd.get_title().set_fontsize('25')
             plt.title(ch + '; ' + exp + '; ' + str(begin) + ':' + str(end) + '; ' + 'clustering: ' + str(clusters))
             plt.draw()
             plt.savefig(join(data_path, ch + '_' + exp + '_' + str(begin) + '_' + str(end) + '_' + 'clustering_' + str(clusters) + '.png'))
