@@ -58,9 +58,8 @@ docker run -it --rm  -p 9999:9999 -v $(pwd):/hichew --name hichew-jupyter hichew
 File `api.py` contains useful functions that you can use in jupyter or python environment (both for segmentation and clustering).
 File `utils.py` contatins third-level-functions that `api.py` uses.
 
-### That is it?
+**Pool requests and issues are welcome!**
 
-No. That is the first version of this tool (even probably alpha-version). Yet not founded bug-fixes and some additional 
-functions will be provided as soon as possible. Watch for updates!
+### Citing
 
-2019-08-13 -- TAD's boundaries insulation calling & clustering implemented.
+Bykov N.S., Sigalova O.M., Gelfand M.S., Galitsyna A.A. (2020) HiChew: a Tool for TAD Clustering in Embryogenesis. In: Cai Z., Mandoiu I., Narasimhan G., Skums P., Guo X. (eds) Bioinformatics Research and Applications. ISBRA 2020. Lecture Notes in Computer Science, vol 12304. Springer, Cham. https://doi.org/10.1007/978-3-030-57821-3_37
