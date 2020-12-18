@@ -304,12 +304,17 @@ def search_opt_window(datasets, cool_sets, experiment_path, grid, mis, mts, chrm
 
         for i in range(1, len(mts_list) - 1):
             if mts_list[i] < mts_list[i - 1] and mts_list[i] < mts_list[i + 1]:
+                #logging.info(mts_list[i])
                 if mts_list[i] < 1:  # Now less than 1 bin of Hi-C map -- should be adjusted in order to depend on expected TAD size)
                     best_index = i
                     break
-
+        #logging.info(np.argmin(mts_list))
+        #logging.info(bs_grid_new[np.argmin(mts_list)])
         # best_index = np.argmin(mts_list)
-        best_boundary_strength_threshold = bs_grid_new[best_index]
+        try:
+            best_boundary_strength_threshold = bs_grid_new[best_index]
+        except:
+            best_boundary_strength_threshold = bs_grid_new[np.argmin(mts_list)]
 
         if best_boundary_strength_threshold < 0.2:
             logging.warning('SEARCH_OPT_WINDOW| WARNING! Your expected TAD size parameter value is probably too low! '
@@ -747,8 +752,12 @@ def viz_opt_curves(df, method, chromnames, expected_mts, mts, data_path, opt_df,
         par1.axis["left"].label.set_color(p2.get_color())
         par2.axis["left"].label.set_color(p3.get_color())
 
-        plt.title('Stage {}, Chr {}, Method: {}, expected TAD size: {} Kb, optimal window: {}'.format(stage,
-                ch, method, str(mts), list(set(opt_df[opt_df.ch == ch]['window']))[0] // resolution))
+        if method == 'insulation':
+            plt.title('Stage {}, Chr {}, Method: {}, expected TAD size: {} Kb, optimal window: {}'.format(stage,
+                    ch, method, str(mts), list(set(opt_df[opt_df.ch == ch]['window']))[0] // resolution))
+        else:
+            plt.title('Stage {}, Chr {}, Method: {}, expected TAD size: {} Kb, optimal gamma: {}'.format(stage,
+                ch, method, str(mts), list(set(opt_df[opt_df.ch == ch]['gamma']))[0] // resolution))
         plt.draw()
         plt.savefig(join(data_path, stage + '_' + ch + '_' + method + '_' + str(mts) + 'Kb' + '.png'), bbox_inches='tight')
 
@@ -1208,21 +1217,37 @@ def viz_clusters_dynamics(df, data_path, method, stages, is_insulation):
         color = colors[v]
         if not v in v_pres.keys():
             v_pres[v] = 0
-            axes[v].plot(r[[col_temp.format(x) for x in stages]], label=v, color=color, alpha=0.1)
+            try:
+                axes[v].plot(r[[col_temp.format(x) for x in stages]], label=v, color=color, alpha=0.1)
+            except:
+                axes.plot(r[[col_temp.format(x) for x in stages]], label=v, color=color, alpha=0.1)
         else:
-            axes[v].plot(r[[col_temp.format(x) for x in stages]].values, color=color, alpha=0.1)
+            try:
+                axes[v].plot(r[[col_temp.format(x) for x in stages]].values, color=color, alpha=0.1)
+            except:
+                axes.plot(r[[col_temp.format(x) for x in stages]].values, color=color, alpha=0.1)
         v_pres[v] += 1
 
     centroids = [list(np.mean(df[df[clusters_name] == nk][[col_temp.format(x) for x in stages]])) for nk in range(n_clusters)]
     for v, c in enumerate(centroids):
         color = colors1[v]
-        axes[v].plot(c, color=color, alpha=0.9, lw=2)
+        try:
+            axes[v].plot(c, color=color, alpha=0.9, lw=2)
+        except:
+            axes.plot(c, color=color, alpha=0.9, lw=2)
 
     for v in v_pres:
-        axes[v].set_xticklabels([])
-        axes[v].set_title("Cluster: {} N: {}".format(v, v_pres[v]))
+        try:
+            axes[v].set_xticklabels([])
+            axes[v].set_title("Cluster: {} N: {}".format(v, v_pres[v]))
+        except:
+            axes.set_xticklabels([])
+            axes.set_title("Cluster: {} N: {}".format(v, v_pres[v]))
 
-    axes[-1].set_xticklabels([col_temp.format(x) for x in stages], rotation=90)
+    try:
+        axes[-1].set_xticklabels([col_temp.format(x) for x in stages], rotation=90)
+    except:
+        axes.set_xticklabels([col_temp.format(x) for x in stages], rotation=90)
 
     plt.draw()
     plt.savefig(join(data_path, 'clusters_detalization_{}.png'.format(method)))
@@ -1243,12 +1268,20 @@ def viz_pca(df, data_path, stages, method, is_insulation):
     col_temp = "z_ins_score_{}" if is_insulation else "zD_{}"
     clusters_name = '_'.join(['cluster', method])
     n_clusters = len(set(df[clusters_name]))
-    pca = PCA(n_components=3)
+
+    if len(stages) >= 3:
+        pca = PCA(n_components=3)
+    else:
+        pca = PCA(n_components=2)
+
     pca_result = pca.fit_transform(df[[col_temp.format(x) for x in stages]].values)
     df_pca = df.copy()
     df_pca['pca-one'] = pca_result[:, 0]
     df_pca['pca-two'] = pca_result[:, 1]
-    df_pca['pca-three'] = pca_result[:, 2]
+    
+    if len(stages) >= 3:
+        df_pca['pca-three'] = pca_result[:, 2]
+    
     logging.info("VIZ_PCA| Explained variation per principal component: {}".format(pca.explained_variance_ratio_))
 
     ax = plt.figure(figsize=(16, 10))
@@ -1262,21 +1295,22 @@ def viz_pca(df, data_path, stages, method, is_insulation):
     )
     plt.draw()
     plt.savefig(join(data_path, '2D_pca_{}.png'.format(method)))
+    
+    if len(stages) >= 3:
+        ax = plt.figure(figsize=(16, 10)).gca(projection='3d')
+        ax.scatter(
+            xs=df_pca["pca-one"],
+            ys=df_pca["pca-two"],
+            zs=df_pca["pca-three"],
+            c=df_pca[clusters_name],
+            cmap='tab10'
+        )
+        ax.set_xlabel('pca-one')
+        ax.set_ylabel('pca-two')
+        ax.set_zlabel('pca-three')
 
-    ax = plt.figure(figsize=(16, 10)).gca(projection='3d')
-    ax.scatter(
-        xs=df_pca["pca-one"],
-        ys=df_pca["pca-two"],
-        zs=df_pca["pca-three"],
-        c=df_pca[clusters_name],
-        cmap='tab10'
-    )
-    ax.set_xlabel('pca-one')
-    ax.set_ylabel('pca-two')
-    ax.set_zlabel('pca-three')
-
-    plt.draw()
-    plt.savefig(join(data_path, '3D_pca_{}.png'.format(method)))
+        plt.draw()
+        plt.savefig(join(data_path, '3D_pca_{}.png'.format(method)))
 
 
 def viz_tsne(df, data_path, stages, method, perplexity, rs, is_insulation):
@@ -1325,4 +1359,8 @@ def get_silhouette_score(df, stages, method, is_insulation):
     """
     col_temp = "z_ins_score_{}" if is_insulation else "zD_{}"
     clusters_name = '_'.join(['cluster', method])
-    return silhouette_score(df[[col_temp.format(x) for x in stages]], list(df[clusters_name]))
+    try:
+        return silhouette_score(df[[col_temp.format(x) for x in stages]], list(df[clusters_name]))
+    except:
+        logginng.info("GET_SILHOUETTE_SCORE| WARNING! CAN'T CALCULATE SILHOUETTE SCORE. IT SEEMS THAT YOU HAVE ONLY 1 CLUSTER.")
+        return 0.0

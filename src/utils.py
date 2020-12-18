@@ -52,13 +52,13 @@ def calc_mean_tad_size(boundaries, filters, ch, mis, mts, wind, resolution):
         select_tads['left_end'], select_tads['right_start']))
     select_tads = select_tads[select_tads['is_normal'] == True]
 
-    mean_tad = np.mean(select_tads['length'])
+    mean_tad = np.median(select_tads['length'])
     try:
-        mean_ins = np.mean(list(select_tads['left_insulation']) + [list(select_tads['right_insulation'])[-1]])
+        mean_ins = np.median(list(select_tads['left_insulation']) + [list(select_tads['right_insulation'])[-1]])
     except Exception as e:
         mean_ins = np.nan
     try:
-        mean_bsc = np.mean(list(select_tads['left_boundary_strength']) + [list(select_tads['right_boundary_strength'])[-1]])
+        mean_bsc = np.median(list(select_tads['left_boundary_strength']) + [list(select_tads['right_boundary_strength'])[-1]])
     except Exception as e:
         mean_bsc = np.nan
     sum_cov = np.sum(select_tads['length'])

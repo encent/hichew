@@ -62,7 +62,7 @@ def run_pipeline():
                                                             'nuclear_cycle_13_repl_merged_5kb, '
                                                             'nuclear_cycle_14_repl_merged_5kb, '
                                                             '3-4h_repl_merged_5kb',
-                        help='Name of coolfiles (with or without extension) corresponding to the stages of development '
+                        help='Name of coolfiles (**without** extension) corresponding to the stages of development '
                              'by which TAD clustering will be run.')
     parser.add_argument('-chr', '--chromnames', type=str, default='X,2L,2R,3L,3R',
                         help='List of chromosomes of interest separated by comma.')
@@ -103,7 +103,7 @@ def run_pipeline():
     MODE = args.mode
     METHOD = args.method
     N_CLUSTERS = args.n_clusters
-    STAGE_NAMES = args.stages; STAGE_NAMES = [splitext(x.strip())[0] for x in STAGE_NAMES.split(',')]
+    STAGE_NAMES = args.stages; STAGE_NAMES = [x.strip() for x in STAGE_NAMES.split(',')]
     CHROMNAMES = args.chromnames; CHROMNAMES = [x.strip() for x in CHROMNAMES.split(',')]
     PERCENTILE = args.percentile
     VIZ_BIN_COUNT = args.viz_bin_count
@@ -148,8 +148,8 @@ def run_pipeline():
         colors = viz_clusters_dynamics(FINAL_CLUSTERING, EXPERIMENT_PATH, METHOD, STAGE_NAMES, IS_INSULATION)
         viz_pca(FINAL_CLUSTERING, EXPERIMENT_PATH, STAGE_NAMES, METHOD, IS_INSULATION)
         viz_tsne(FINAL_CLUSTERING, EXPERIMENT_PATH, STAGE_NAMES, METHOD, PERPLEXITY, RS, IS_INSULATION)
-        viz_tads(EXPERIMENT_PATH, FINAL_CLUSTERING, DATASETS, CHROMNAMES, VISUAL_STAGE, RESOLUTION, METHOD, is_insulation=IS_INSULATION, clusters=True, colors=colors,
-                 percentile=PERCENTILE, vbc=VIZ_BIN_COUNT)
+        #viz_tads(EXPERIMENT_PATH, FINAL_CLUSTERING, DATASETS, CHROMNAMES, VISUAL_STAGE, RESOLUTION, METHOD, is_insulation=IS_INSULATION, clusters=True, colors=colors,
+        #         percentile=PERCENTILE, vbc=VIZ_BIN_COUNT)
         SCORE = get_silhouette_score(FINAL_CLUSTERING, STAGE_NAMES, METHOD, IS_INSULATION)
         logging.info("RUN_PIPELINE| silhouette score for clustering is {}".format(SCORE))
 
