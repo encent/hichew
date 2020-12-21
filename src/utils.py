@@ -499,7 +499,7 @@ def whether_tad_noisy(x, filters, ch, method, resolution=5000, k=3):
             return True
         if x[1] <= end_f_new and x[0] >= bgn_f_new:
             return True
-        if x[0] <= bgn_f_new and x[1] >= end_f_new and end_f_new - bgn_f_new != 0:
+        if x[0] <= bgn_f_new and x[1] >= end_f_new:
             return True
     return False
 
