@@ -441,7 +441,7 @@ def run_consensus(datasets, cool_sets, experiment_path, grid, mis, mts, chrms, m
                       exp='nuclear_cycle_14, 3-4h', percentile=99.9, eps=0.05, window_eps=5, merge_boundaries=False,
                   k=3, loc_size=2, N=4, filtration='auto', bs_thresholds=None, bs_thresholds_grid=None):
     """
-    Function to search consensus set of boundaries ampng given set of stages (indicated in exp parameter)
+    Function to search consensus set of boundaries among given set of stages (indicated in exp parameter)
     :param datasets: python dictionary with loaded chromosomes and stages.
     :param experiment_path: path to experiment directory.
     :param method: segmentation method (only armatus, modularity and insulation available).
@@ -782,7 +782,7 @@ def viz_tads(data_path, df, datasets, chromnames, exp, resolution, method=None, 
     Value vbc=1000 means that we split our chromosome into 1000-bins-sized regions and vizualize each of them.
     :return: nothing.
     """
-    with open('../colors.json', 'r') as f:
+    with open('../data/colors.json', 'r') as f:
         color_dict = json.load(f)
 
     if consensus:
