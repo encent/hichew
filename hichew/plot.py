@@ -25,6 +25,8 @@ def clusters_dynamics(df, columns, clusters):
     """
     Function to vizualize dynamics of clusters in space of stages.
     :param df: dataframe with performed clustering.
+    :param columns: list of names of columns by which clustering was performed
+    :param clusters: name of df column with clusters
     :return: seaborn colors palette to encode clusters with certain colors.
     """
     n_clusters = len(set(df[clusters]))
@@ -79,9 +81,11 @@ def clusters_dynamics(df, columns, clusters):
 
 def _pca(df, columns, clusters):
     """
-    Function to vizualize PCA of our clustering.
+    Function to perform PCA (2D and 3D, if applicable) for the clustering.
     :param df: dataframe with performed clustering.
-    :return: nothing.
+    :param columns: list of names of columns by which clustering was performed
+    :param clusters: name of df column with clusters
+    :return: --
     """
     n_clusters = len(set(df[clusters]))
 
@@ -131,11 +135,13 @@ def _pca(df, columns, clusters):
 
 def _tsne(df, columns, clusters, perplexity=30, rs=42):
     """
-    Function to vizualize tSNE of our clustering.
+    Function to perform tSNE for the clustering.
     :param df: dataframe with performed clustering.
+    :param columns: list of names of columns by which clustering was performed
+    :param clusters: name of df column with clusters
     :param perplexity: parameter for tSNE method.
     :param rs: random state for tSNE method.
-    :return: nothing.
+    :return: --
     """
     n_clusters = len(set(df[clusters]))
     method = clusters.split('_')[1]
@@ -165,12 +171,14 @@ def viz_opt_curves(df, opt_df, method, chromnames, expected_mts=60000, mts=1000,
     Function to vizualize curves of coverage value, mean tad size and number of tads depend on gamma values in our grid.
     :param df: for modularity and armatus -- dataframe with all segmentations based on all gamma values from our grid.
     for insulation -- dictionary with statistics.
-    :param method: segmentation method (only armatus and modularity available).
+    :param opt_df: dataframe with segmentation for optimal gamma / window values
+    :param method: TAD or TAD boundaries calling method (insulation, armatus or modularity).
     :param chromnames: list of chromosomes of interest.
-    :param expected_mts: expected mean size of TADs. For Drosophila melanogaster preferable 120 Kb or 60 Kb or 30 Kb.
+    :param expected_mts: expected mean size of TADs
     :param mts: maximum TAD size.
-    :param data_path: path to experiment's directory.
-    :return: nothing
+    :param resolution: resolution of Hi-C maps
+    :param stage: stage of development by which TAD or TAD boundaries calling was performed
+    :return: --
     """
     for ch in chromnames:
         if method == 'insulation':
@@ -242,23 +250,22 @@ def viz_opt_curves(df, opt_df, method, chromnames, expected_mts=60000, mts=1000,
         plt.show()
 
 
-def viz_tads(df, datasets, begin, end, ch, exp, resolution, method=None, is_insulation=False, clusters=False, colors=None, percentile=99.9):
+def viz_tads(df, datasets, begin=0, end=100, ch='chrX', exp='3-4h', resolution=5000, method=None, is_insulation=False, clusters=False, colors=None, percentile=99.9):
     """
-    Function to vizualize TADs on our Hi-C matrix.
-    :param data_path: path to experiment's directory.
-    :param df: dataframe with segmentation/clustering to vizualize.
+    Function to vizualize TADs or TAD boundaries on the Hi-C matrices.
+    :param df: dataframe with segmentation/clustering.
     :param datasets: python dictionary with loaded chromosomes and stages.
-    :param chromnames: list of chromosomes of interest.
-    :param exp: stage of development by which we vizualize segmentation/clustering.
+    :param begin: start bin for visualization
+    :param end: end bin for visualization
+    :param ch: chromosome of interest
+    :param exp: stage of development by which we want to visualize segmentation/clustering.
     :param resolution: Hi-C resolution of your coolfiles.
     :param method: clustering method. Type in case of clusters=True.
+    :param is_insulation: True in case of TAD boundaries annotation in df , False in case of TAD segmentation in df
     :param clusters: True if we want to vizualize clustering, False otherwise.
     :param colors: color pallet for clustering vizualization.
     :param percentile: percentile for cooler preparations and Hi-C vizualization.
-    :param vbc: resolution of each chromosome segment to vizualize. You can change it in order to have desired scale
-    of your vizualization.
-    Value vbc=1000 means that we split our chromosome into 1000-bins-sized regions and vizualize each of them.
-    :return: nothing.
+    :return: --
     """
     color_dict = {"#7bc8f6": "lightblue", "#76ff7b": "lightgreen", "#faee66": "yellowish", "#fc86aa": "pinky",  "#a8a495": "greyish", "#070d0d": "almost black", "#fd8d49": "orangeish", "#98568d": "purpleish"}
 

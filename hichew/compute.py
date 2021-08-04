@@ -18,7 +18,14 @@ warnings.filterwarnings("ignore")
 
 def normalize(df, columns, type_norm='z-score-row'):
     """
-    type_norm: Type of normalization (z-score-row, z-score-col, min-max-col, min-max-row, log-col, log-row)
+    Function to normalize D-scores or insulation scores.
+    :param df: dataframe with segmentation and calculated D-scores / insulation scores for each stage of development.
+    :param colnames: list of names of columns for normalization
+    :param type_norm: type of normalization (z-score-row – z-score statistics for each TAD;\n
+     z-score-col – z-score statistics for each stage of development;\n min-max-row – min-max statistics for each TAD;\n
+     min-max-col – min-max statistics for each stage of development;\n log-row – row-based logarithmic normalization;\n
+     log-col – column-based logarithmic normalization)
+    :return: adjusted dataframe with normalized D-scores or insulation scores
     """
     df_copy = df.copy()
     for col in columns:
@@ -52,8 +59,11 @@ def normalize(df, columns, type_norm='z-score-row'):
 
 def d_scores(df, matrices, stages):
     """
-    Function to compute D-z-scores to perform clustering.
-    :return: adjusted dataframe with D-scores columns for each stage.
+    Function to compute D-scores to perform clustering.
+    :param df: dataframe with TAD segmentation
+    :param matrices: python dictionary with loaded chromosomes and stages.
+    :param stages: list of stages to compute D-scores for them (basically -- list of keys of matrices dict)
+    :return: adjusted dataframe with caluclated D-scores for each stage of development.
     """
     logging.info("COMPUTE|D_SCORES| Start computing D-scores...")
 
@@ -82,9 +92,11 @@ def d_scores(df, matrices, stages):
 
 def silhouette(df, columns, clusters):
     """
-    Function to get silhouette score of our clustering
+    Function to compute silhouette score of the clustering
     :param df: dataframe with performed clustering.
-    :return: silhouette score
+    :param columns: list of names of columns by which clustering was performed
+    :param clusters: name of df column with clusters
+    :return: silhouette score (0 -- bad clustering, 1 -- good clustering)
     """
     try:
         return silhouette_score(df[columns], list(df[clusters]))
@@ -95,13 +107,13 @@ def silhouette(df, columns, clusters):
 
 def insulation_scores(df, coolers, stages, chromnames=None, ignore_diags=2):
     """
-    Function to compute Insulation-z-scores to perform clustering. Only for method=insulation usage!
-    :param seg_path: path to the file with final (optimal) segmentation.
-    :param cool_sets: python dictionary with cooler files that correspond to selected stages of development.
+    Function to compute insulation scores to perform clustering.
+    :param df: dataframe with TAD boundaries annotation
+    :param coolers: :param coolers: python dictionary with cooler files that correspond to selected stages of development.
     :param stages: list of developmental stages.
-    :param chrms: list of chromosomes.
-    :param ignore_diags: parameter for cooltools calculate_insulation_score method.
-    :return: adjusted dataframe with insulation-z-scores columns for each stage.
+    :param chromnames: list of chromosomes of interest. If None -- all chromosomes will be considered.
+    :param ignore_diags: parameter for cooltools calculate_insulation_score method to ignore first K diagonals while computing insulation diamond.
+    :return: adjusted dataframe with insulation scores computed for each stage.
     """
     logging.info("COMPUTE|INSULATION_SCORES| Start computing insulation scores...")
     in_time = time.time()

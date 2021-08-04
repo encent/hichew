@@ -25,7 +25,7 @@ def boundaries(matrices, coolers, label='3-4h', expected_tad_size=60000, grid=No
     to use last stage of development to call both TADs and TAD boundaries
     :param expected_tad_size: TAD size to be expected in the investigated organism.
     It could be found in papers as mean / median TAD size
-    :param grid: list of values for window size parameter (in bp) of insulation method.
+    :param grid: list of values for window size parameter (in bp !!! -- just multiply by resolution) of insulation method.
     If None -- default grid will be selected
     :param chromnames: list of chromosomes of interest. If None -- all chromosomes will be considered.
     :param max_intertad: maximum intertad size
@@ -265,7 +265,29 @@ def boundaries(matrices, coolers, label='3-4h', expected_tad_size=60000, grid=No
     return df, df_opt, stats, opt_windows
 
 
-def domains(matrices, coolers, method='armatus', label='3-4h', expected_tad_size=60000, grid=None, chromnames=None, max_intertad=3, max_tad=1000, percentile=99.9, eps=1e-2):
+def domains(matrices, coolers, method='armatus', label='3-4h', expected_tad_size=60000, grid=None,
+            chromnames=None, max_intertad=3, max_tad=1000, percentile=99.9, eps=1e-2):
+    """
+    Function to call TADs.
+    :param matrices: python dictionary with loaded chromosomes and stages.
+    :param coolers: python dictionary with cooler files that correspond to selected stages of development.
+    :param method: Method of TAD segmentation (modularity or armatus)
+    :param label: coolfile name to call TADs. In case of developmental Hi-C data we recommend
+    to use last stage of development to call both TADs and TAD boundaries
+    :param expected_tad_size: TAD size to be expected in the investigated organism.
+    It could be found in papers as mean / median TAD size
+    :param grid: list of values for gamma parameter for modularity or armatus method.
+    If None -- default grid will be selected
+    :param chromnames: list of chromosomes of interest. If None -- all chromosomes will be considered.
+    :param max_intertad: maximum intertad size
+    :param max_tad: maximum tad size.
+    :param percentile: percentile for cooler preparations and Hi-C vizualization.
+    Normally should be 99.9 or 99.99, but you could set another value.
+    :param eps: delta for mean / median tad size during gamma search. Normally equal to 1e-2.
+    Lower values gives you more accurate optimal gamma value in the end.
+    :return: python dictionary with optimal gamma values for each chromosome, dataframe with segmentation for all
+    gamma values in given range and dataframe with segmentation for optimal gamma values.
+    """
     if not grid:
         if method == 'armatus':
             grid = np.arange(0, 5, 0.01)
@@ -323,22 +345,15 @@ def domains(matrices, coolers, method='armatus', label='3-4h', expected_tad_size
 def clusters(df, colnames, method='kmeans', n_clusters=6, rs=42, damping=0.7, max_iter=400, convergence_iter=15):
     """
     Function to perform clustering under the given (optimal) segmentation.
-    :param df: dataframe with segmentation and calculated D-z-scores.
+    :param df: dataframe with segmentation and calculated (and normalized) D-scores / insulation scores for each stage of development.
     :param colnames: list of names of columns by which to perform clustering
-    :param seg_path: path to the file with (optimal) segmentation by which we want to perform clustering.
-    :param data_path: path to the experiment's directory.
-    :param mode: mode of clustering. Mode 'range' means that we want to perform clustering for a range of number of
-    clusters (to select then the best number of clusters by vizual assessment). Mode 'certain' means that we want to
-    launch our clustering under the certain number of clusters value.
     :param method: clustering method. Available: 'kmeans', 'meanshift', 'hierarchical', 'spectral', 'affinity_propagation'.
-    :param n_clusters: in case of mode='certain' - number of clusters. In case of mode='range' - maximum number K of
-    clusters in range 1..K.
-    :param stages: list of developmental stages by which we want to built clustering.
+    :param n_clusters: number of clusters
     :param rs: random state for clustering/tSNE methods. Pass 0 in case you want to have no random state during your experiments.
     :param damping: damping parameter for affinity propagation clustering.
     :param max_iter: max_inter parameter for affinity propagation clustering.
     :param convergence_iter: convergence_iter parameter for affinity propagation clustering.
-    :return: adjusted dataframe with clustering (add a column 'cluster_METHOD' with cluster's labels.
+    :return: adjusted dataframe with clustering (with a column 'cluster_METHOD' added, where METHOD is a clustering method.
     """
     if method == 'kmeans':
         km = KMeans(n_clusters=n_clusters, random_state=rs).fit(df[colnames])
