@@ -9,8 +9,7 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering, AffinityPropagation, MeanShift
 
-sys.path.append(os.path.abspath(os.path.join('..', 'lib')))
-from lib import utils
+from hichew.lib import utils
 
 warnings.filterwarnings("ignore")
 

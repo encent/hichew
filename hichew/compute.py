@@ -11,8 +11,7 @@ import scipy
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import MinMaxScaler
 
-sys.path.append(os.path.abspath(os.path.join('..', 'lib')))
-from lib import utils
+from hichew.lib import utils
 
 warnings.filterwarnings("ignore")
 
