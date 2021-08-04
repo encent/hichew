@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering, AffinityPropagation, MeanShift
 
-from hichew.lib import utils
+from hichew.hichew.lib import utils
 
 warnings.filterwarnings("ignore")
 

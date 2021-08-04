@@ -9,7 +9,7 @@ import scipy
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import MinMaxScaler
 
-from hichew.lib import utils
+from hichew.hichew.lib import utils
 
 warnings.filterwarnings("ignore")
 
