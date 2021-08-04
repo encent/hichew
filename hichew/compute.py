@@ -1,5 +1,7 @@
 import logging
 import time
+import os
+import sys
 import warnings
 
 import cooltools
@@ -9,7 +11,7 @@ import scipy
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import MinMaxScaler
 
-from .. import lib
+sys.path.append(os.path.abspath(os.path.join('..', 'lib')))
 from lib import utils
 
 warnings.filterwarnings("ignore")

@@ -1,13 +1,15 @@
 import logging
 import time
 import operator
+import os
+import sys
 import warnings
 
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans, AgglomerativeClustering, SpectralClustering, AffinityPropagation, MeanShift
 
-from .. import lib
+sys.path.append(os.path.abspath(os.path.join('..', 'lib')))
 from lib import utils
 
 warnings.filterwarnings("ignore")
