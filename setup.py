@@ -18,6 +18,6 @@ setup(
         'cooltools',
         'scikit-learn==0.20.3',
         'seaborn==0.9.0',
-        'matplotlib==3.0.3',
+        'matplotlib',
     ]
 )
