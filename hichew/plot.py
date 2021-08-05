@@ -222,7 +222,7 @@ def viz_opt_curves(df, opt_df, method, chromnames, expected_mts=60000, mts=1000,
             par2.set_ylabel("TADs count")
 
         if method == 'insulation':
-            p1, = host.plot(w_range, gr_mean * resolution, label="{} mean TAD size".format(ch))
+            p1, = host.plot(w_range, [x * resolution for x in gr_mean], label="{} mean TAD size".format(ch))
             p1, = host.plot([min(w_range), max(w_range)], [expected_mts, expected_mts], color=p1.get_color())
             p1, = host.plot(
                 [list(set(opt_df[opt_df.ch == ch]['window']))[0], list(set(opt_df[opt_df.ch == ch]['window']))[0]],
