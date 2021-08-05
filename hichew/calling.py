@@ -324,14 +324,14 @@ def domains(matrices, coolers, method='armatus', label='3-4h', expected_tad_size
         logging.info("CALL|DOMAINS| End chromosome {}".format(ch))
 
     df.loc[:, 'gamma'] = df.gamma.values.astype(float)
-    df.loc[:, 'bgn'] = df.bgn.values.astype(int)
-    df.loc[:, 'end'] = df.end.values.astype(int)
+    df.loc[:, 'bgn'] = df.bgn.values.astype(int) * resolution
+    df.loc[:, 'end'] = df.end.values.astype(int) * resolution
     df.loc[:, 'length'] = df.end - df.bgn
     df.reset_index(drop=True, inplace=True)
 
     df_concretized.loc[:, 'gamma'] = df_concretized.gamma.values.astype(float)
-    df_concretized.loc[:, 'bgn'] = df_concretized.bgn.values.astype(int)
-    df_concretized.loc[:, 'end'] = df_concretized.end.values.astype(int)
+    df_concretized.loc[:, 'bgn'] = df_concretized.bgn.values.astype(int) * resolution
+    df_concretized.loc[:, 'end'] = df_concretized.end.values.astype(int) * resolution
     df_concretized.loc[:, 'length'] = df_concretized.end - df_concretized.bgn
     df_concretized.reset_index(drop=True, inplace=True)
 

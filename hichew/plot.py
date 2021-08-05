@@ -180,6 +180,7 @@ def viz_opt_curves(df, opt_df, method, chromnames, expected_mts=60000, mts=1000,
     :param stage: stage of development by which TAD or TAD boundaries calling was performed
     :return: --
     """
+    # expected_mts /= resolution
     for ch in chromnames:
         if method == 'insulation':
             od = collections.OrderedDict(sorted(df[ch].items()))
@@ -221,7 +222,7 @@ def viz_opt_curves(df, opt_df, method, chromnames, expected_mts=60000, mts=1000,
             par2.set_ylabel("TADs count")
 
         if method == 'insulation':
-            p1, = host.plot(w_range, gr_mean, label="{} mean TAD size".format(ch))
+            p1, = host.plot(w_range, gr_mean * resolution, label="{} mean TAD size".format(ch))
             p1, = host.plot([min(w_range), max(w_range)], [expected_mts, expected_mts], color=p1.get_color())
             p1, = host.plot(
                 [list(set(opt_df[opt_df.ch == ch]['window']))[0], list(set(opt_df[opt_df.ch == ch]['window']))[0]],
@@ -270,7 +271,7 @@ def viz_tads(df, datasets, begin=0, end=100, ch='chrX', exp='3-4h', resolution=5
     color_dict = {"#7bc8f6": "lightblue", "#76ff7b": "lightgreen", "#faee66": "yellowish", "#fc86aa": "pinky",  "#a8a495": "greyish", "#070d0d": "almost black", "#fd8d49": "orangeish", "#98568d": "purpleish"}
 
     df_tmp = df.query("ch=='{}'".format(ch))
-    segments = df_tmp[['bgn', 'end']].values
+    segments = df_tmp[['bgn', 'end']].values // resolution
     mtx_cor = datasets[exp][ch]
     np.fill_diagonal(mtx_cor, 0)
     plt.figure(figsize=[20, 20])
@@ -283,19 +284,19 @@ def viz_tads(df, datasets, begin=0, end=100, ch='chrX', exp='3-4h', resolution=5
         clusters_name = '_'.join(['cluster', method])
         for l, seg in zip(df_tmp[clusters_name].values, segments):
             if is_insulation:
-                if int(seg[0] / resolution) < end and int(seg[1] / resolution) > begin:
+                if seg[0] < end and seg[1] > begin:
                     for i in range(1):
-                        plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                 [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                        plt.plot([seg[0] + i - begin, seg[1] + i - begin],
+                                 [seg[0] - i - begin, seg[0] - i - begin],
                                  color=colors[l], linewidth=7, label=str(l))
-                        plt.plot([int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                 [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                        plt.plot([seg[1] + i - begin, seg[1] + i - begin],
+                                 [seg[0] - i - begin, seg[1] - i - begin],
                                  color=colors[l], linewidth=7, label=str(l))
-                        plt.plot([int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                                 [int(seg[0] / resolution + 1 - i) - begin, int(seg[0] / resolution + 1 - i) - begin],
+                        plt.plot([seg[0] + i - begin, seg[1] + i - begin],
+                                 [seg[0] + 1 - i - begin, seg[0] + 1 - i - begin],
                                  color=colors[l], linewidth=7, label=str(l))
-                        plt.plot([int(seg[1] / resolution - 1 + i) - begin, int(seg[1] / resolution - 1 + i) - begin],
-                                 [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                        plt.plot([seg[1] - 1 + i - begin, seg[1] - 1 + i - begin],
+                                 [seg[0] - i - begin, seg[1] - i - begin],
                                  color=colors[l], linewidth=7, label=str(l))
             else:
                 if seg[0] < end and seg[1] > begin:
@@ -306,25 +307,25 @@ def viz_tads(df, datasets, begin=0, end=100, ch='chrX', exp='3-4h', resolution=5
     else:
         for ii, seg in enumerate(segments):
             if is_insulation:
-                if int(seg[0] / resolution) < end and int(seg[1] / resolution) > begin:
+                if seg[0] < end and seg[1] > begin:
                     for i in range(1):
                         plt.plot(
-                            [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                            [int(seg[0] / resolution - i) - begin, int(seg[0] / resolution - i) - begin],
+                            [seg[0] + i - begin, seg[1] + i - begin],
+                            [seg[0] - i - begin, seg[0] - i - begin],
                             color='blue', linewidth=7)
                         plt.plot(
-                            [int(seg[1] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                            [int(seg[0] / resolution - i) - begin, int(seg[1] / resolution - i) - begin],
+                            [seg[1] + i - begin, seg[1] + i - begin],
+                            [seg[0] - i - begin, seg[1] - i - begin],
                             color='blue', linewidth=7)
                         plt.plot(
-                            [int(seg[0] / resolution + i) - begin, int(seg[1] / resolution + i) - begin],
-                            [int(seg[0] / resolution + 1 - i) - begin,
-                             int(seg[0] / resolution + 1 - i) - begin],
+                            [seg[0] + i - begin, seg[1] + i - begin],
+                            [seg[0] + 1 - i - begin,
+                             seg[0] + 1 - i - begin],
                             color='blue', linewidth=7)
-                        plt.plot([int(seg[1] / resolution - 1 + i) - begin,
-                                  int(seg[1] / resolution - 1 + i) - begin],
-                                 [int(seg[0] / resolution - i) - begin,
-                                  int(seg[1] / resolution - i) - begin],
+                        plt.plot([seg[1] - 1 + i - begin,
+                                  seg[1] - 1 + i - begin],
+                                 [seg[0] - i - begin,
+                                  seg[1] - i - begin],
                                  color='blue', linewidth=7)
             else:
                 if seg[0] < end and seg[1] > begin:
@@ -339,4 +340,3 @@ def viz_tads(df, datasets, begin=0, end=100, ch='chrX', exp='3-4h', resolution=5
 
     plt.draw()
     plt.show()
-

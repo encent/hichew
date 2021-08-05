@@ -57,12 +57,13 @@ def normalize(df, columns, type_norm='z-score-row'):
     return df_copy
 
 
-def d_scores(df, matrices, stages):
+def d_scores(df, matrices, stages, resolution=5000):
     """
     Function to compute D-scores to perform clustering.
     :param df: dataframe with TAD segmentation
     :param matrices: python dictionary with loaded chromosomes and stages.
     :param stages: list of stages to compute D-scores for them (basically -- list of keys of matrices dict)
+    :param resolution: the resolution (in bp) of Hi-C matrices
     :return: adjusted dataframe with caluclated D-scores for each stage of development.
     """
     logging.info("COMPUTE|D_SCORES| Start computing D-scores...")
@@ -74,7 +75,7 @@ def d_scores(df, matrices, stages):
     for ch in chrms:
         df_tmp = df.query("ch=='{}'".format(ch))
         if df_tmp.shape[0] == 0: continue
-        segments = df_tmp[['bgn', 'end']].values
+        segments = df_tmp[['bgn', 'end']].values // resolution
         for exp in stages:
             mtx_cor = matrices[exp][ch]
             np.fill_diagonal(mtx_cor, 0)
