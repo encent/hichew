@@ -43,7 +43,10 @@ def cool_files(path, resolution=5000, chromnames=None):
 
     for label, file in list(zip(labels, files)):
         if splitext(basename(file))[1] == '.mcool':
-            c = cooler.Cooler(file + '::/resolutions/{}'.format(resolution))
+            try:
+                c = cooler.Cooler(file + '::/resolutions/{}'.format(resolution))
+            except Exception as e:
+                c = cooler.Cooler(file + '::/resolution/{}'.format(resolution))
         elif splitext(basename(file))[1] == '.cool':
             c = cooler.Cooler(file)
         else:
