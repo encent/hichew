@@ -10,12 +10,13 @@ from os.path import basename, join, splitext, isfile, isdir
 warnings.filterwarnings("ignore")
 
 
-def cool_files(path, resolution=5000, chromnames=None):
+def cool_files(path, resolution=5000, chromnames=None, stages=None):
     """
     Function to load .cool or .mcool files.
     :param path: path to the directory with .cool or .mcool files OR path to the certain coolfile.
     :param resolution: resolution of Hi-C maps in bp (available only for .mcool files)
     :param chromnames: list of chromosomes to be loaded. If None -- all chromosomes will be loaded.
+    :param stages: list of stages to load
     :return:
     *   nested python dictionary with keys of coolfile names and chromosomes,
     and values of the corresponding contact matrices;
@@ -23,7 +24,10 @@ def cool_files(path, resolution=5000, chromnames=None):
     """
     if isfile(path) and (splitext(basename(path))[1] == '.cool' or splitext(basename(path))[1] == '.mcool'):
         files = [path]
-    else:
+    elif stages is not None:
+        stages_new = [splitext(sn)[0] for sn in stages]
+        files = [x for x in glob.glob(join(path, '*.*cool')) if splitext(basename(x))[0] in stages_new]
+    elif stages is None:
         files = [x for x in glob.glob(join(path, '*.*cool'))]
 
     if isdir(path):
@@ -43,10 +47,7 @@ def cool_files(path, resolution=5000, chromnames=None):
 
     for label, file in list(zip(labels, files)):
         if splitext(basename(file))[1] == '.mcool':
-            try:
-                c = cooler.Cooler(file + '::/resolutions/{}'.format(resolution))
-            except Exception as e:
-                c = cooler.Cooler(file + '::/resolution/{}'.format(resolution))
+            c = cooler.Cooler(file + '::/resolutions/{}'.format(resolution))
         elif splitext(basename(file))[1] == '.cool':
             c = cooler.Cooler(file)
         else:
